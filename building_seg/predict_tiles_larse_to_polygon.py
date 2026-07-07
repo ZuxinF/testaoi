@@ -64,9 +64,9 @@ DEFAULT_LARSE_TO_TARGET = {
 def parse_args():
     parser = argparse.ArgumentParser(description="Run LaRSE on XYZ tiles and export function polygons.")
     parser.add_argument("--tiles", default="data/tianditu/nansha_z18/tiles")
-    parser.add_argument("--larse-dir", default="/home/user/code/int/my/LaRSE")
-    parser.add_argument("--larse-data-path", default="/home/user/code/int/my/LaRSE/datasets")
-    parser.add_argument("--checkpoint", default="/home/user/code/int/my/LaRSE/checkpoints/checkpoint_LARSE.ckpt")
+    parser.add_argument("--larse-dir", default=None, help="LaRSE project root. Auto-detects ../LaRSE and ../../LaRSE if omitted.")
+    parser.add_argument("--larse-data-path", default=None, help="LaRSE datasets directory. Defaults to <larse-dir>/datasets.")
+    parser.add_argument("--checkpoint", default=None, help="Defaults to <larse-dir>/checkpoints/checkpoint_LARSE.ckpt.")
     parser.add_argument("--backbone", default="clip_vitb32_384")
     parser.add_argument("--dataset", default="buff1w")
     parser.add_argument("--class-json", default=None, help="Optional paqu metadata/dataset.json for target class order.")
@@ -79,7 +79,48 @@ def parse_args():
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--min-area-pixels", type=int, default=12)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
-    return parser.parse_args()
+    args = parser.parse_args()
+    resolve_larse_paths(args)
+    return args
+
+
+def resolve_larse_paths(args):
+    cwd = Path.cwd()
+    candidates = []
+    if args.larse_dir:
+        candidates.append(Path(args.larse_dir))
+    candidates.extend(
+        [
+            cwd / ".." / "LaRSE",
+            cwd / ".." / ".." / "LaRSE",
+            Path(__file__).resolve().parents[2] / "LaRSE",
+            Path(__file__).resolve().parents[3] / "LaRSE",
+        ]
+    )
+
+    larse_dir = None
+    for candidate in candidates:
+        candidate = candidate.expanduser().resolve()
+        if (candidate / "modules" / "lseg_module.py").exists():
+            larse_dir = candidate
+            break
+    if larse_dir is None:
+        tried = "\n".join(str(c.expanduser()) for c in candidates)
+        raise FileNotFoundError(f"Could not locate LaRSE project root. Tried:\n{tried}")
+
+    args.larse_dir = str(larse_dir)
+    if args.larse_data_path is None:
+        args.larse_data_path = str(larse_dir / "datasets")
+    else:
+        args.larse_data_path = str(Path(args.larse_data_path).expanduser().resolve())
+
+    if args.checkpoint is None:
+        args.checkpoint = str(larse_dir / "checkpoints" / "checkpoint_LARSE.ckpt")
+    else:
+        args.checkpoint = str(Path(args.checkpoint).expanduser().resolve())
+
+    if not Path(args.checkpoint).exists():
+        raise FileNotFoundError(f"LaRSE checkpoint not found: {args.checkpoint}")
 
 
 def load_target_class_names(path: str | None) -> list[str]:

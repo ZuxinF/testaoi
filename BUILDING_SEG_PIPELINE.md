@@ -238,7 +238,7 @@ background        -> background
 先跑一个 1 个 patch 的冒烟测试：
 
 ```bash
-conda run -n larse python -m building_seg.predict_tiles_larse_to_polygon \
+python -m building_seg.predict_tiles_larse_to_polygon \
   --tiles data/tianditu/nansha_z18/tiles \
   --class-json data/building_seg_tiles_512_debug/metadata/dataset.json \
   --out-gpkg data/larse_tiles_debug/pred_larse_polygons.gpkg \
@@ -252,7 +252,7 @@ conda run -n larse python -m building_seg.predict_tiles_larse_to_polygon \
 较大范围测试：
 
 ```bash
-conda run -n larse python -m building_seg.predict_tiles_larse_to_polygon \
+python -m building_seg.predict_tiles_larse_to_polygon \
   --tiles data/tianditu/nansha_z18/tiles \
   --class-json data/building_seg_tiles_512_debug/metadata/dataset.json \
   --out-gpkg data/larse_tiles_debug/pred_larse_polygons_1000.gpkg \
@@ -265,15 +265,18 @@ conda run -n larse python -m building_seg.predict_tiles_larse_to_polygon \
 
 说明：
 
+- 这个脚本适配 venv 环境，激活 venv 后直接运行 `python -m ...` 即可。
+- 默认会自动寻找 `../LaRSE` 和 `../../LaRSE`，checkpoint 默认使用 `<LaRSE>/checkpoints/checkpoint_LARSE.ckpt`。如果另一台电脑的目录就是工作目录的 `../../LaRSE/checkpoints/`，一般不需要额外指定路径。
+- 如果目录结构不一样，手动加 `--larse-dir /path/to/LaRSE`，或加 `--checkpoint /path/to/checkpoint_LARSE.ckpt`。
 - `--out-larse-mask-dir` 保存 LaRSE 原始 1-12 类 mask，方便看它原始判断。
 - `--out-mask-dir` 保存映射到当前 `Function` 类之后的 ID mask。
 - `--out-gpkg` 保存映射后的 polygon 结果。
 - 这个结果是跨城市、跨影像源的直接迁移基线，不等于最终精度；建议先用真实数据切出训练/验证集，再按验证集统计各类 IoU 和 polygon 级准确率。
 
-如果 `larse` 环境缺少地理包，需要补一次：
+如果 venv 环境缺少地理包，需要补一次：
 
 ```bash
-conda run -n larse pip install \
+pip install \
   geopandas==0.10.2 \
   shapely==1.8.5.post1 \
   pyproj==3.2.1 \
