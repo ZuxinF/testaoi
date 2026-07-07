@@ -1,3 +1,21 @@
-requests>=2.32.0
-rasterio>=1.3.9
+# Tianditu downloader
+# requests==2.32.4
 
+# Core numeric / image stack
+numpy==2.2.6
+pandas==2.2.3
+Pillow==11.2.1
+
+# Geospatial stack for GeoTIFF, GPKG, CRS transforms, and polygonization.
+# These versions are chosen for modern venv/Python 3.13 compatibility.
+rasterio==1.4.3
+geopandas==1.0.1
+shapely==2.0.7
+pyproj==3.7.1
+pyogrio==0.10.0
+
+# Training / inference.
+# Install the CUDA-specific PyTorch wheel separately if needed; this default
+# line installs the platform-appropriate wheel from PyPI.
+torch==2.7.1
+torchvision==0.22.1
