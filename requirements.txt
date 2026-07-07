@@ -19,3 +19,6 @@ pyogrio==0.10.0
 # line installs the platform-appropriate wheel from PyPI.
 torch==2.7.1
 torchvision==0.22.1
+
+# YOLO26 instance segmentation baseline.
+ultralytics==8.4.90

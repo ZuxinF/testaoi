@@ -7,4 +7,5 @@ output/
 *.tif
 *.tiff
 *.vrt
+*.pt
 README.md

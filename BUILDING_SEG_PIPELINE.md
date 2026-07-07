@@ -20,7 +20,7 @@
 在项目主目录运行：
 
 ```bash
-cd /home/user/code/int/my/paqu
+cd /home/user/code/int/my/footprint/testaoi
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
@@ -29,6 +29,18 @@ pip install -r requirements.txt
 
 ```bash
 python -c "import torch, rasterio, geopandas, shapely, pyogrio; print('ok'); print(torch.__version__); print(torch.cuda.is_available())"
+```
+
+如果要跑 YOLO26 实例分割基线，`requirements.txt` 里已经包含 `ultralytics`。检查：
+
+```bash
+python - <<'PY'
+import torch
+import ultralytics
+print("torch:", torch.__version__)
+print("cuda:", torch.cuda.is_available())
+print("ultralytics:", ultralytics.__version__)
+PY
 ```
 
 ### 可选：从 paqu 的 venv 补到能接入 LaRSE
@@ -275,7 +287,192 @@ python -m building_seg.predict_tiles_to_polygon \
 
 如果以后需要基于整幅 GeoTIFF 推理，仍可使用旧脚本 `predict_to_polygon.py`，但当前 tiles 版更适合你的数据组织方式。
 
-## 六、用 LaRSE 做迁移基线
+## 六、用 YOLO26 做实例分割基线
+
+YOLO26 的 `-seg` 模型是实例分割模型，适合直接学习“每栋建筑 polygon + Function 类别”。这和 `tiny_unet` 的语义分割不同：YOLO 输出的是对象级 mask/polygon、box、类别和置信度。
+
+官方参考：Ultralytics YOLO26 模型说明见 `https://docs.ultralytics.com/models/yolo26/`，实例分割任务说明见 `https://docs.ultralytics.com/tasks/segment/`。
+
+这条链路已经在当前目录测通：
+
+- `building_seg.prepare_yolo_seg_from_tiles`：从 `tiles + GPKG` 生成 YOLO segmentation 数据集。
+- `building_seg.visualize_yolo_seg`：把 YOLO polygon label 叠加到原图上，方便迁移前检查标注是否对齐。
+- `yolo segment train/val/predict`：Ultralytics YOLO26 训练、验证和预测。
+
+### 6.1 生成 YOLO26 segmentation 数据集
+
+先生成一个小样本，只用于检查格式和命令：
+
+```bash
+python -m building_seg.prepare_yolo_seg_from_tiles \
+  --tiles data/tianditu/nansha_z18/tiles \
+  --labels data/南沙区建筑物.gpkg \
+  --out data/yolo26_seg_tiles_512_debug \
+  --label-field Function \
+  --patch-tiles 2 \
+  --max-positive 100 \
+  --val-ratio 0.2
+```
+
+输出结构：
+
+```text
+data/yolo26_seg_tiles_512_debug/
+  data.yaml
+  images/train/*.jpg
+  images/val/*.jpg
+  labels/train/*.txt
+  labels/val/*.txt
+  metadata/dataset.json
+  metadata/samples.json
+```
+
+YOLO segmentation label 每行格式为：
+
+```text
+class_id x1 y1 x2 y2 x3 y3 ...
+```
+
+其中 `x/y` 是 `0~1` 的归一化像素坐标。
+
+真实环境可以直接扩大样本数：
+
+```bash
+python -m building_seg.prepare_yolo_seg_from_tiles \
+  --tiles data/tianditu/nansha_z18/tiles \
+  --labels data/南沙区建筑物.gpkg \
+  --out data/yolo26_seg_tiles_512_train \
+  --label-field Function \
+  --patch-tiles 2 \
+  --max-positive 5000 \
+  --val-ratio 0.2
+```
+
+注意：这里不额外生成纯背景样本，因为你的真实 GT 存在漏标风险。先只用有 polygon 标注的 patch 训练和评估。
+
+### 6.2 检查 YOLO polygon 标注是否对齐
+
+```bash
+python -m building_seg.visualize_yolo_seg \
+  --dataset data/yolo26_seg_tiles_512_debug \
+  --split train \
+  --limit 30
+
+python -m building_seg.visualize_yolo_seg \
+  --dataset data/yolo26_seg_tiles_512_debug \
+  --split val \
+  --limit 20
+```
+
+输出：
+
+```text
+data/yolo26_seg_tiles_512_debug/label_previews/train/
+data/yolo26_seg_tiles_512_debug/label_previews/val/
+```
+
+迁移到真实环境后，建议先打开这些预览图看 polygon 是否贴着建筑物。如果这里偏了，后面的 mAP 没有参考意义。
+
+### 6.3 YOLO26 冒烟训练
+
+先跑 1 epoch，只确认训练链路能通：
+
+```bash
+yolo segment train \
+  model=yolo26n-seg.pt \
+  data=data/yolo26_seg_tiles_512_debug/data.yaml \
+  imgsz=512 \
+  epochs=1 \
+  batch=4 \
+  device=0 \
+  project=data/yolo26_runs \
+  name=debug_yolo26n_seg \
+  workers=2
+```
+
+无 GPU 时把 `device=0` 改成：
+
+```text
+device=cpu
+```
+
+### 6.4 正式一点的短训命令
+
+真实数据上可以先用 nano 版短训：
+
+```bash
+yolo segment train \
+  model=yolo26n-seg.pt \
+  data=data/yolo26_seg_tiles_512_train/data.yaml \
+  imgsz=512 \
+  epochs=50 \
+  batch=8 \
+  device=0 \
+  project=data/yolo26_runs \
+  name=yolo26n_seg_512 \
+  workers=4
+```
+
+如果显存足够，再试 small 版：
+
+```bash
+yolo segment train \
+  model=yolo26s-seg.pt \
+  data=data/yolo26_seg_tiles_512_train/data.yaml \
+  imgsz=512 \
+  epochs=50 \
+  batch=8 \
+  device=0 \
+  project=data/yolo26_runs \
+  name=yolo26s_seg_512 \
+  workers=4
+```
+
+### 6.5 验证精度
+
+```bash
+yolo segment val \
+  model=runs/segment/data/yolo26_runs/yolo26n_seg_512/weights/best.pt \
+  data=data/yolo26_seg_tiles_512_train/data.yaml \
+  imgsz=512 \
+  device=0
+```
+
+重点看：
+
+```text
+Box(P/R/mAP50/mAP50-95)
+Mask(P/R/mAP50/mAP50-95)
+```
+
+对建筑轮廓任务，`Mask mAP50` 和 `Mask mAP50-95` 比 box 指标更重要。
+
+### 6.6 预测可视化
+
+```bash
+yolo segment predict \
+  model=runs/segment/data/yolo26_runs/yolo26n_seg_512/weights/best.pt \
+  source=data/yolo26_seg_tiles_512_train/images/val \
+  imgsz=512 \
+  conf=0.05 \
+  device=0 \
+  project=data/yolo26_runs \
+  name=yolo26n_seg_512_predict \
+  save=True
+```
+
+如果 `conf=0.05` 没有检出，可以临时降到 `conf=0.001` 看模型是否只是置信度低。但正式看精度仍以 `yolo segment val` 的 mAP 为准。
+
+### 6.7 当前本地随机/模拟数据的测试结论
+
+当前目录里这份数据主要用于链路调试，不能用来判断真实精度。我本地只验证了：
+
+- `ultralytics==8.4.90` 能在当前 `.venv` 里运行。
+- `yolo26n-seg.pt` 能自动下载并训练。
+- 100 张 debug 样本可以生成 YOLO labels，训练 1 epoch 和 30 epoch 都能跑完。
+- 因为这份数据不是可靠真实标注，30 epoch 的 mAP 很低，不作为模型能力结论。
+
+## 七、用 LaRSE 做迁移基线
 
 LaRSE 可以作为第一版正式模型基线来试。它的输入也是遥感影像，输出是建筑功能语义分割 mask；这里新增了一个适配脚本，把 LaRSE 的 BUFF 12 类结果映射到当前 `Function` 字段，并继续输出 polygon GPKG。
 
@@ -334,7 +531,7 @@ python -m building_seg.predict_tiles_larse_to_polygon \
 - `--out-gpkg` 保存映射后的 polygon 结果。
 - 这个结果是跨城市、跨影像源的直接迁移基线，不等于最终精度；建议先用真实数据切出训练/验证集，再按验证集统计各类 IoU 和 polygon 级准确率。
 
-## 七、模型替换接口
+## 八、模型替换接口
 
 模型注册位置：
 
@@ -374,7 +571,7 @@ model_state
 
 所以推理脚本可以自动按 checkpoint 加载对应模型。
 
-## 八、迁移到真实环境时重点检查
+## 九、迁移到真实环境时重点检查
 
 1. `data/南沙区建筑物.gpkg` 是否能被 `geopandas.read_file()` 读取。
 2. GPKG 是否有 `Function` 字段。
@@ -393,7 +590,7 @@ Positive > 0
 - tiles 不是同一个区域；
 - 字段路径或文件名传错。
 
-## 九、当前已验证结果
+## 十、当前已验证结果
 
 本机已用：
 
