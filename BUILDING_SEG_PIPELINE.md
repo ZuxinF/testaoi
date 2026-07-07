@@ -160,38 +160,128 @@ python -m building_seg.train \
 
 ## 五、推理并输出 polygon
 
-当前推理脚本使用 GeoTIFF 输入，因为它需要输出带地理坐标的 mask 和 polygon。
+推荐使用 tiles 版推理，不需要 `.tif`。脚本会从 `tiles/18/{x}/{y}.jpg` 的 `z/x/y` 计算 Web Mercator 地理范围，然后直接输出 polygon GPKG。
 
-调试命令：
+调试命令，只预测 5 个 512×512 patch：
 
 ```bash
-python -m building_seg.predict_to_polygon \
-  --image data/nansha_img_w_z18.tif \
+python -m building_seg.predict_tiles_to_polygon \
+  --tiles data/tianditu/nansha_z18/tiles \
   --checkpoint data/building_seg_tiles_512_debug/checkpoints/tiny_unet_debug.pt \
-  --out-mask data/building_seg_tiles_512_debug/predictions/debug_pred_mask.tif \
-  --out-gpkg data/building_seg_tiles_512_debug/predictions/debug_pred_polygons.gpkg \
-  --window 19558,6981,512,512 \
-  --tile-size 512 \
-  --overlap 0
+  --out-gpkg data/building_seg_tiles_512_debug/predictions_tiles/debug_pred_polygons.gpkg \
+  --out-mask-dir data/building_seg_tiles_512_debug/predictions_tiles/masks \
+  --patch-tiles 2 \
+  --stride-tiles 2 \
+  --limit 5
 ```
 
 输出：
 
 ```text
-debug_pred_mask.tif
-debug_pred_polygons.gpkg
-debug_pred_polygons.classes.json
+predictions_tiles/masks/*.png
+predictions_tiles/debug_pred_polygons.gpkg
+predictions_tiles/debug_pred_polygons.classes.json
 ```
 
 polygon GPKG 字段：
 
 ```text
+patch_id
 class_id
 Function
 geometry
 ```
 
-## 六、模型替换接口
+较大范围推理时，可以去掉 `--limit`，或者先设置一个更大的限制：
+
+```bash
+python -m building_seg.predict_tiles_to_polygon \
+  --tiles data/tianditu/nansha_z18/tiles \
+  --checkpoint data/building_seg_tiles_512_train/checkpoints/tiny_unet.pt \
+  --out-gpkg data/building_seg_tiles_512_train/predictions_tiles/pred_polygons.gpkg \
+  --out-mask-dir data/building_seg_tiles_512_train/predictions_tiles/masks \
+  --patch-tiles 2 \
+  --stride-tiles 2 \
+  --limit 1000
+```
+
+说明：
+
+- `--patch-tiles 2`：每次推理 `2×2` 个 tile，输入大小是 512×512。
+- `--stride-tiles 2`：每次移动 2 个 tile，避免 patch 之间重叠。
+- `--out-mask-dir`：可选，保存每个 patch 的预测类别 ID mask；这些 mask 看起来也会偏黑，这是正常的。
+- `--out-gpkg`：最终 polygon 结果。
+
+如果以后需要基于整幅 GeoTIFF 推理，仍可使用旧脚本 `predict_to_polygon.py`，但当前 tiles 版更适合你的数据组织方式。
+
+## 六、用 LaRSE 做迁移基线
+
+LaRSE 可以作为第一版正式模型基线来试。它的输入也是遥感影像，输出是建筑功能语义分割 mask；这里新增了一个适配脚本，把 LaRSE 的 BUFF 12 类结果映射到当前 `Function` 字段，并继续输出 polygon GPKG。
+
+LaRSE 原始类别到当前类别的默认映射如下：
+
+```text
+dense residential -> 居住
+residential       -> 居住
+business          -> 办公
+commercial        -> 商业
+factory           -> 工业
+government        -> 公共服务
+public            -> 公共服务
+hospital          -> 医疗
+school            -> 教育
+resort            -> 其他
+others            -> 其他
+background        -> background
+```
+
+先跑一个 1 个 patch 的冒烟测试：
+
+```bash
+conda run -n larse python -m building_seg.predict_tiles_larse_to_polygon \
+  --tiles data/tianditu/nansha_z18/tiles \
+  --class-json data/building_seg_tiles_512_debug/metadata/dataset.json \
+  --out-gpkg data/larse_tiles_debug/pred_larse_polygons.gpkg \
+  --out-mask-dir data/larse_tiles_debug/masks \
+  --out-larse-mask-dir data/larse_tiles_debug/larse_raw_masks \
+  --patch-tiles 2 \
+  --stride-tiles 2 \
+  --limit 1
+```
+
+较大范围测试：
+
+```bash
+conda run -n larse python -m building_seg.predict_tiles_larse_to_polygon \
+  --tiles data/tianditu/nansha_z18/tiles \
+  --class-json data/building_seg_tiles_512_debug/metadata/dataset.json \
+  --out-gpkg data/larse_tiles_debug/pred_larse_polygons_1000.gpkg \
+  --out-mask-dir data/larse_tiles_debug/masks_1000 \
+  --out-larse-mask-dir data/larse_tiles_debug/larse_raw_masks_1000 \
+  --patch-tiles 2 \
+  --stride-tiles 2 \
+  --limit 1000
+```
+
+说明：
+
+- `--out-larse-mask-dir` 保存 LaRSE 原始 1-12 类 mask，方便看它原始判断。
+- `--out-mask-dir` 保存映射到当前 `Function` 类之后的 ID mask。
+- `--out-gpkg` 保存映射后的 polygon 结果。
+- 这个结果是跨城市、跨影像源的直接迁移基线，不等于最终精度；建议先用真实数据切出训练/验证集，再按验证集统计各类 IoU 和 polygon 级准确率。
+
+如果 `larse` 环境缺少地理包，需要补一次：
+
+```bash
+conda run -n larse pip install \
+  geopandas==0.10.2 \
+  shapely==1.8.5.post1 \
+  pyproj==3.2.1 \
+  fiona==1.8.22 \
+  rasterio==1.2.10
+```
+
+## 七、模型替换接口
 
 模型注册位置：
 
@@ -231,7 +321,7 @@ model_state
 
 所以推理脚本可以自动按 checkpoint 加载对应模型。
 
-## 七、迁移到真实环境时重点检查
+## 八、迁移到真实环境时重点检查
 
 1. `data/南沙区建筑物.gpkg` 是否能被 `geopandas.read_file()` 读取。
 2. GPKG 是否有 `Function` 字段。
@@ -250,7 +340,7 @@ Positive > 0
 - tiles 不是同一个区域；
 - 字段路径或文件名传错。
 
-## 八、当前已验证结果
+## 九、当前已验证结果
 
 本机已用：
 
