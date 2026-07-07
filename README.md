@@ -4,6 +4,10 @@
 
 [BUILDING_SEG_PIPELINE.md](BUILDING_SEG_PIPELINE.md)
 
+LaRSE 迁移推理的独立 venv 环境说明见：
+
+[LARSE_VENV_README.md](LARSE_VENV_README.md)
+
 Tools for downloading high-resolution Tianditu imagery tiles for Nansha,
 then optionally stitching the downloaded tiles into a georeferenced GeoTIFF.
 
