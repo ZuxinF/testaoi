@@ -81,6 +81,31 @@ data/building_seg_tiles_debug/
 - mask 中 `0` 表示 background，其他数值对应 `Function` 类别。
 - 类别映射保存在 `metadata/dataset.json`。
 
+注意：训练用的 `masks/*.png` 是类别 ID 图，像素值通常只有 `0~9` 这种小整数，所以用普通图片查看器打开时会显得几乎全黑。这是正常现象，不代表 mask 没有内容。
+
+可以生成彩色预览图检查标注：
+
+```bash
+python -m building_seg.visualize_masks \
+  --dataset data/building_seg_tiles_debug \
+  --overlay \
+  --limit 200
+```
+
+输出位置：
+
+```text
+data/building_seg_tiles_debug/mask_previews/color/
+data/building_seg_tiles_debug/mask_previews/overlay/
+data/building_seg_tiles_debug/mask_previews/legend.txt
+```
+
+如果想确认某个 mask 的实际类别值，也可以运行：
+
+```bash
+python -c "from PIL import Image; import numpy as np; p='data/building_seg_tiles_debug/masks/z18_x213649_y114047.png'; a=np.array(Image.open(p)); print(np.unique(a, return_counts=True))"
+```
+
 确认 smoke test 成功后，再跑大一点的数据集：
 
 ```bash
