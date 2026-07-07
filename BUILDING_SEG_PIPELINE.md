@@ -49,23 +49,26 @@ data/南沙区建筑物.gpkg
 
 ## 三、从 tiles 生成训练样本
 
-先跑一个很小的 smoke test，确认真实数据能接上：
+先跑一个很小的 smoke test，确认真实数据能接上。
+
+当前脚本会把 `2×2` 个 z18 tile 合成一张 `512×512` 训练图。由于 GT 里存在较多漏标，先不要额外采集纯背景 tile，所以 `--negative` 保持为 `0`。
 
 ```bash
 python -m building_seg.prepare_seg_dataset_from_tiles \
   --tiles data/tianditu/nansha_z18/tiles \
   --labels data/南沙区建筑物.gpkg \
-  --out data/building_seg_tiles_debug \
+  --out data/building_seg_tiles_512_debug \
   --label-field Function \
+  --patch-tiles 2 \
   --max-positive 20 \
-  --negative 5 \
+  --negative 0 \
   --val-ratio 0.2
 ```
 
 成功后会生成：
 
 ```text
-data/building_seg_tiles_debug/
+data/building_seg_tiles_512_debug/
   images/*.png
   masks/*.png
   splits/train.txt
@@ -87,7 +90,7 @@ data/building_seg_tiles_debug/
 
 ```bash
 python -m building_seg.visualize_masks \
-  --dataset data/building_seg_tiles_debug \
+  --dataset data/building_seg_tiles_512_debug \
   --overlay \
   --limit 200
 ```
@@ -95,15 +98,15 @@ python -m building_seg.visualize_masks \
 输出位置：
 
 ```text
-data/building_seg_tiles_debug/mask_previews/color/
-data/building_seg_tiles_debug/mask_previews/overlay/
-data/building_seg_tiles_debug/mask_previews/legend.txt
+data/building_seg_tiles_512_debug/mask_previews/color/
+data/building_seg_tiles_512_debug/mask_previews/overlay/
+data/building_seg_tiles_512_debug/mask_previews/legend.txt
 ```
 
 如果想确认某个 mask 的实际类别值，也可以运行：
 
 ```bash
-python -c "from PIL import Image; import numpy as np; p='data/building_seg_tiles_debug/masks/z18_x213649_y114047.png'; a=np.array(Image.open(p)); print(np.unique(a, return_counts=True))"
+python -c "from PIL import Image; import numpy as np; import pathlib; root=pathlib.Path('data/building_seg_tiles_512_debug/masks'); p=sorted(root.glob('*.png'))[0]; a=np.array(Image.open(p)); print(p.name, np.unique(a, return_counts=True))"
 ```
 
 确认 smoke test 成功后，再跑大一点的数据集：
@@ -112,17 +115,19 @@ python -c "from PIL import Image; import numpy as np; p='data/building_seg_tiles
 python -m building_seg.prepare_seg_dataset_from_tiles \
   --tiles data/tianditu/nansha_z18/tiles \
   --labels data/南沙区建筑物.gpkg \
-  --out data/building_seg_tiles_train \
+  --out data/building_seg_tiles_512_train \
   --label-field Function \
+  --patch-tiles 2 \
   --max-positive 5000 \
-  --negative 1000 \
+  --negative 0 \
   --val-ratio 0.2
 ```
 
 参数说明：
 
-- `--max-positive`：最多导出多少个含建筑标注的 tile。
-- `--negative`：额外导出多少个背景 tile。
+- `--max-positive`：最多导出多少个含建筑标注的 512×512 patch。
+- `--negative`：额外导出多少个全背景 patch。当前真实 GT 有漏标风险，建议保持为 `0`，不要把无标注区域强行当成确定背景。
+- `--patch-tiles`：每边拼接几个 tile。`2` 表示 `2×2` 个 256 tile 合成一张 512×512 训练图。
 - `--label-field`：GPKG 里表示建筑功能的字段名。如果真实字段不是 `Function`，这里要改。
 
 ## 四、训练调试模型
@@ -131,8 +136,8 @@ python -m building_seg.prepare_seg_dataset_from_tiles \
 
 ```bash
 python -m building_seg.train \
-  --dataset data/building_seg_tiles_debug \
-  --out data/building_seg_tiles_debug/checkpoints/tiny_unet_debug.pt \
+  --dataset data/building_seg_tiles_512_debug \
+  --out data/building_seg_tiles_512_debug/checkpoints/tiny_unet_debug.pt \
   --model tiny_unet \
   --epochs 2 \
   --batch-size 4 \
@@ -143,8 +148,8 @@ python -m building_seg.train \
 
 ```bash
 python -m building_seg.train \
-  --dataset data/building_seg_tiles_train \
-  --out data/building_seg_tiles_train/checkpoints/tiny_unet.pt \
+  --dataset data/building_seg_tiles_512_train \
+  --out data/building_seg_tiles_512_train/checkpoints/tiny_unet.pt \
   --model tiny_unet \
   --epochs 20 \
   --batch-size 8 \
@@ -162,9 +167,9 @@ python -m building_seg.train \
 ```bash
 python -m building_seg.predict_to_polygon \
   --image data/nansha_img_w_z18.tif \
-  --checkpoint data/building_seg_tiles_debug/checkpoints/tiny_unet_debug.pt \
-  --out-mask data/building_seg_tiles_debug/predictions/debug_pred_mask.tif \
-  --out-gpkg data/building_seg_tiles_debug/predictions/debug_pred_polygons.gpkg \
+  --checkpoint data/building_seg_tiles_512_debug/checkpoints/tiny_unet_debug.pt \
+  --out-mask data/building_seg_tiles_512_debug/predictions/debug_pred_mask.tif \
+  --out-gpkg data/building_seg_tiles_512_debug/predictions/debug_pred_polygons.gpkg \
   --window 19558,6981,512,512 \
   --tile-size 512 \
   --overlap 0
@@ -258,13 +263,14 @@ data/南沙区建筑物.gpkg
 
 ```text
 total_tiles_found = 92002
-positive_samples = 20
-negative_samples = 5
+positive_samples = 10
+negative_samples = 0
+patch_tiles = 2
 class_names = background, 仓储, 公共服务, 其他, 办公, 医疗, 商业, 居住, 工业, 教育
 ```
 
-并成功训练出调试 checkpoint：
+并生成了 512×512 调试样本：
 
 ```text
-data/building_seg_tiles_debug/checkpoints/tiny_unet_debug.pt
+data/building_seg_tiles_512_debug/
 ```

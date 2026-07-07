@@ -3,16 +3,16 @@ from __future__ import annotations
 import argparse
 import json
 import random
-import shutil
 from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
 from PIL import Image
 from rasterio.features import rasterize
+from rasterio.transform import from_bounds
 from shapely.geometry import box
 
-from building_seg.tiles import parse_xyz_tile_path, tile_bounds_3857, tile_transform
+from building_seg.tiles import parse_xyz_tile_path, tile_bounds_3857
 
 
 def parse_args():
@@ -22,11 +22,11 @@ def parse_args():
     parser.add_argument("--out", default="data/building_seg_real_tiles", help="Output dataset directory")
     parser.add_argument("--label-field", default="Function")
     parser.add_argument("--extensions", default=".jpg,.png,.jpeg")
-    parser.add_argument("--max-positive", type=int, default=5000, help="Max tiles with buildings to export")
-    parser.add_argument("--negative", type=int, default=1000, help="Random tiles without buildings to export")
+    parser.add_argument("--patch-tiles", type=int, default=2, help="Number of XYZ tiles per side; 2 means 512x512 from 2x2 tiles")
+    parser.add_argument("--max-positive", type=int, default=5000, help="Max patches with labeled buildings to export")
+    parser.add_argument("--negative", type=int, default=0, help="Random patches without labels. Keep 0 if GT has many missing buildings.")
     parser.add_argument("--val-ratio", type=float, default=0.2)
     parser.add_argument("--seed", type=int, default=20260707)
-    parser.add_argument("--copy-images", action="store_true", help="Copy original tile bytes instead of re-saving as PNG")
     return parser.parse_args()
 
 
@@ -39,17 +39,56 @@ def load_tile_image(path: Path) -> np.ndarray:
     return np.asarray(image)
 
 
-def rasterize_tile(tile_path: Path, buildings: gpd.GeoDataFrame, class_to_id: dict[str, int]) -> tuple[np.ndarray, int]:
-    image = load_tile_image(tile_path)
-    height, width = image.shape[:2]
-    z, x, y = parse_xyz_tile_path(tile_path)
-    bounds = tile_bounds_3857(x, y, z)
-    transform = tile_transform(x, y, z, width, height)
-    tile_box = box(*bounds)
+def build_tile_index(tile_paths: list[Path]) -> dict[tuple[int, int, int], Path]:
+    tile_index = {}
+    for tile_path in tile_paths:
+        z, x, y = parse_xyz_tile_path(tile_path)
+        tile_index[(z, x, y)] = tile_path
+    return tile_index
 
-    subset = buildings[buildings.intersects(tile_box)]
+
+def load_mosaic(anchor_path: Path, tile_index: dict[tuple[int, int, int], Path], patch_tiles: int):
+    z, x0, y0 = parse_xyz_tile_path(anchor_path)
+    first = Image.open(anchor_path).convert("RGB")
+    tile_w, tile_h = first.size
+    mosaic = Image.new("RGB", (tile_w * patch_tiles, tile_h * patch_tiles))
+
+    for dy in range(patch_tiles):
+        for dx in range(patch_tiles):
+            path = tile_index.get((z, x0 + dx, y0 + dy))
+            if path is None:
+                return None, None, None, None
+            tile = Image.open(path).convert("RGB")
+            if tile.size != (tile_w, tile_h):
+                return None, None, None, None
+            mosaic.paste(tile, (dx * tile_w, dy * tile_h))
+
+    left = tile_bounds_3857(x0, y0, z)[0]
+    top = tile_bounds_3857(x0, y0, z)[3]
+    right = tile_bounds_3857(x0 + patch_tiles - 1, y0 + patch_tiles - 1, z)[2]
+    bottom = tile_bounds_3857(x0 + patch_tiles - 1, y0 + patch_tiles - 1, z)[1]
+    bounds = (left, bottom, right, top)
+    transform = from_bounds(*bounds, width=mosaic.size[0], height=mosaic.size[1])
+    return mosaic, bounds, transform, (z, x0, y0)
+
+
+def rasterize_patch(
+    anchor_path: Path,
+    tile_index: dict[tuple[int, int, int], Path],
+    buildings: gpd.GeoDataFrame,
+    class_to_id: dict[str, int],
+    patch_tiles: int,
+):
+    mosaic, bounds, transform, xyz = load_mosaic(anchor_path, tile_index, patch_tiles)
+    if mosaic is None:
+        return None, None, 0, None
+
+    width, height = mosaic.size
+    patch_box = box(*bounds)
+
+    subset = buildings[buildings.intersects(patch_box)]
     if subset.empty:
-        return np.zeros((height, width), dtype="uint8"), 0
+        return mosaic, np.zeros((height, width), dtype="uint8"), 0, xyz
 
     shapes = [
         (geom, class_to_id[label])
@@ -64,19 +103,15 @@ def rasterize_tile(tile_path: Path, buildings: gpd.GeoDataFrame, class_to_id: di
         dtype="uint8",
         all_touched=True,
     )
-    return mask, len(subset)
+    return mosaic, mask, len(subset), xyz
 
 
-def save_sample(tile_path: Path, sample_id: str, out_dir: Path, mask: np.ndarray, copy_images: bool):
+def save_sample(image: Image.Image, sample_id: str, out_dir: Path, mask: np.ndarray):
     image_out = out_dir / "images" / f"{sample_id}.png"
     mask_out = out_dir / "masks" / f"{sample_id}.png"
     image_out.parent.mkdir(parents=True, exist_ok=True)
     mask_out.parent.mkdir(parents=True, exist_ok=True)
-
-    if copy_images and tile_path.suffix.lower() == ".png":
-        shutil.copy2(tile_path, image_out)
-    else:
-        Image.open(tile_path).convert("RGB").save(image_out)
+    image.save(image_out)
     Image.fromarray(mask).save(mask_out)
 
 
@@ -93,6 +128,7 @@ def main():
     tile_paths = find_tiles(Path(args.tiles), extensions)
     if not tile_paths:
         raise RuntimeError(f"No tile images found under {args.tiles}")
+    tile_index = build_tile_index(tile_paths)
 
     buildings = gpd.read_file(args.labels)
     if args.label_field not in buildings.columns:
@@ -115,12 +151,14 @@ def main():
     scanned = 0
     for tile_path in tile_paths:
         scanned += 1
-        mask, building_count = rasterize_tile(tile_path, buildings, class_to_id)
+        image, mask, building_count, xyz = rasterize_patch(tile_path, tile_index, buildings, class_to_id, args.patch_tiles)
+        if image is None:
+            continue
         has_positive_pixels = bool(np.any(mask > 0))
         if has_positive_pixels and len(positive) < args.max_positive:
-            positive.append((tile_path, mask, building_count))
+            positive.append((tile_path, image, mask, building_count, xyz))
         elif not has_positive_pixels and len(negative) < args.negative:
-            negative.append((tile_path, mask, building_count))
+            negative.append((tile_path, image, mask, building_count, xyz))
 
         if len(positive) >= args.max_positive and len(negative) >= args.negative:
             break
@@ -134,18 +172,20 @@ def main():
 
     sample_ids = []
     tile_records = []
-    for idx, (tile_path, mask, building_count) in enumerate(selected):
-        z, x, y = parse_xyz_tile_path(tile_path)
-        sample_id = f"z{z}_x{x}_y{y}"
-        save_sample(tile_path, sample_id, out_dir, mask, copy_images=args.copy_images)
+    for idx, (tile_path, image, mask, building_count, xyz) in enumerate(selected):
+        z, x, y = xyz
+        sample_id = f"z{z}_x{x}_y{y}_s{image.size[0]}"
+        save_sample(image, sample_id, out_dir, mask)
         sample_ids.append(sample_id)
         tile_records.append(
             {
                 "sample_id": sample_id,
-                "tile_path": str(tile_path),
+                "anchor_tile_path": str(tile_path),
                 "z": z,
                 "x": x,
                 "y": y,
+                "patch_tiles": args.patch_tiles,
+                "pixel_size": list(image.size),
                 "building_count": building_count,
                 "positive_pixels": int(np.count_nonzero(mask)),
             }
@@ -163,6 +203,7 @@ def main():
         "labels": str(Path(args.labels).resolve()),
         "label_field": args.label_field,
         "crs": "EPSG:3857",
+        "patch_tiles": args.patch_tiles,
         "class_names": class_names,
         "class_to_id": class_to_id,
         "total_tiles_found": len(tile_paths),
