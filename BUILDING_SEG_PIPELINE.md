@@ -449,6 +449,31 @@ Mask(P/R/mAP50/mAP50-95)
 
 ### 6.6 预测可视化
 
+如果要和 GT 叠加看，并且图上不显示类别文字、置信度，推荐用这个项目里的脚本：
+
+```bash
+python -m building_seg.visualize_yolo_predictions \
+  --model runs/segment/data/yolo26_runs/yolo26n_seg_512/weights/best.pt \
+  --dataset data/yolo26_seg_tiles_512_train \
+  --split val \
+  --out data/yolo26_seg_tiles_512_train/prediction_overlays/val \
+  --imgsz 512 \
+  --conf 0.05 \
+  --device 0 \
+  --limit 100
+```
+
+输出图中：
+
+```text
+绿色轮廓：GT polygon
+红色半透明区域/轮廓：YOLO 预测 mask
+```
+
+图上不会绘制类别名、文字标签或置信度。
+
+如果只是想看 Ultralytics 默认预测图，可以运行：
+
 ```bash
 yolo segment predict \
   model=runs/segment/data/yolo26_runs/yolo26n_seg_512/weights/best.pt \
