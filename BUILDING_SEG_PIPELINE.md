@@ -31,6 +31,67 @@ pip install -r requirements.txt
 python -c "import torch, rasterio, geopandas, shapely, pyogrio; print('ok'); print(torch.__version__); print(torch.cuda.is_available())"
 ```
 
+### 可选：从 paqu 的 venv 补到能接入 LaRSE
+
+如果只跑 `tiny_unet` 调试链路，安装 `requirements.txt` 即可。  
+如果要运行 `python -m building_seg.predict_tiles_larse_to_polygon`，同一个 venv 还需要能 import LaRSE 项目的依赖。
+
+先安装 LaRSE 迁移推理常用依赖：
+
+```bash
+pip install \
+  pytorch-lightning==1.4.9 \
+  torchmetrics==0.6.0 \
+  test-tube==0.7.5 \
+  timm==0.4.12 \
+  open-clip-torch \
+  ftfy \
+  regex \
+  tqdm \
+  scipy \
+  matplotlib \
+  opencv-python \
+  torchinfo \
+  thop \
+  fvcore
+```
+
+安装 OpenAI CLIP：
+
+```bash
+pip install git+https://github.com/openai/CLIP.git@04f4dc2ca1ed0acc9893bd1a3b526a7e02c4bb10
+```
+
+LaRSE 还依赖 `encoding` / `torch-encoding`：
+
+```python
+from encoding.datasets import test_batchify_fn
+from encoding.models.sseg import BaseNet
+from encoding.nn import SegmentationLosses
+```
+
+如果检查时发现 `encoding` 缺失，需要按 LaRSE 的 README 安装 `torch-encoding`，并把 LaRSE 里的 `buff1w.py` 注册到 `encoding.datasets`。这是 LaRSE 原项目的数据集注册要求，不是 paqu 新增的要求。
+
+快速检查：
+
+```bash
+python - <<'PY'
+mods = [
+    "torch", "torchvision", "geopandas", "rasterio", "shapely", "pyproj",
+    "pytorch_lightning", "timm", "open_clip", "clip", "encoding",
+    "cv2", "torchinfo", "thop", "fvcore"
+]
+for m in mods:
+    try:
+        __import__(m)
+        print("OK  ", m)
+    except Exception as e:
+        print("MISS", m, e)
+PY
+```
+
+注意：LaRSE 原始环境是 Python 3.7 + PyTorch 1.9.1。如果你的 paqu venv 是较新的 Python，例如 3.10/3.11/3.13，`torch-encoding` 可能会比较难装。遇到这种情况，建议优先使用一个单独的 LaRSE venv/conda 环境跑 `predict_tiles_larse_to_polygon`，paqu 侧的数据准备和普通模型训练仍然可以用较新的 venv。
+
 ## 二、输入数据
 
 推荐目录结构：
@@ -272,17 +333,6 @@ python -m building_seg.predict_tiles_larse_to_polygon \
 - `--out-mask-dir` 保存映射到当前 `Function` 类之后的 ID mask。
 - `--out-gpkg` 保存映射后的 polygon 结果。
 - 这个结果是跨城市、跨影像源的直接迁移基线，不等于最终精度；建议先用真实数据切出训练/验证集，再按验证集统计各类 IoU 和 polygon 级准确率。
-
-如果 venv 环境缺少地理包，需要补一次：
-
-```bash
-pip install \
-  geopandas==0.10.2 \
-  shapely==1.8.5.post1 \
-  pyproj==3.2.1 \
-  fiona==1.8.22 \
-  rasterio==1.2.10
-```
 
 ## 七、模型替换接口
 
