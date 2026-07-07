@@ -1,5 +1,9 @@
 # Nansha Tianditu Imagery
 
+建筑物功能分割训练流程见：
+
+[BUILDING_SEG_PIPELINE.md](BUILDING_SEG_PIPELINE.md)
+
 Tools for downloading high-resolution Tianditu imagery tiles for Nansha,
 then optionally stitching the downloaded tiles into a georeferenced GeoTIFF.
 
