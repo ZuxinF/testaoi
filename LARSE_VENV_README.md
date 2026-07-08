@@ -352,6 +352,94 @@ data/larse_tiles_debug/pred_larse_polygons_100.gpkg
 
 ## 十二、常见问题
 
+### 12.1 torch-encoding 编译时报 Unsupported .version
+
+如果安装 `torch-encoding` 时出现类似：
+
+```text
+ptxas /tmp/tmpxft_..._encoding_kernel.ptx, line 9 fatal:
+Unsupported .version 8.5; current version is '8.2'
+```
+
+这通常不是 `torch-encoding` 源码本身的问题，而是 **PyTorch / CUDA / nvcc / ptxas 版本混用**。含义是：当前编译流程生成了 PTX 8.5，但实际调用到的 `ptxas` 只能识别到 PTX 8.2。
+
+先检查当前环境：
+
+```bash
+python - <<'PY'
+import torch
+print("torch:", torch.__version__)
+print("torch cuda:", torch.version.cuda)
+print("cuda available:", torch.cuda.is_available())
+PY
+
+which nvcc || true
+nvcc --version || true
+
+which ptxas || true
+ptxas --version || true
+```
+
+推荐组合是：
+
+```text
+Python 3.8.18
+torch 1.9.1+cu111
+torchvision 0.10.1+cu111
+CUDA toolkit / nvcc 11.x
+```
+
+如果检查发现当前环境里是 `torch 2.x + cu12x`，不要在这个环境里装 `torch-encoding`。建议新建一个干净的 LaRSE conda 环境，或在当前环境里先卸掉新版 torch：
+
+```bash
+pip uninstall -y torch torchvision torchaudio torch-encoding
+
+pip install torch==1.9.1+cu111 torchvision==0.10.1+cu111 \
+  -f https://download.pytorch.org/whl/torch_stable.html
+```
+
+然后确认：
+
+```bash
+python - <<'PY'
+import torch
+print(torch.__version__)
+print(torch.version.cuda)
+PY
+```
+
+应该看到类似：
+
+```text
+1.9.1+cu111
+11.1
+```
+
+再安装 `torch-encoding`：
+
+```bash
+pip install git+https://github.com/zhanghang1989/PyTorch-Encoding/@331ecdd5306104614cb414b16fbcd9d1a8d40e1e
+```
+
+如果仍然报 `ptxas` 版本错误，说明系统 PATH 里调用到了不匹配的 CUDA 工具。临时指定 CUDA 11.x：
+
+```bash
+export CUDA_HOME=/usr/local/cuda-11.1
+export PATH=$CUDA_HOME/bin:$PATH
+export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
+
+which nvcc
+nvcc --version
+which ptxas
+ptxas --version
+```
+
+如果机器上没有 `/usr/local/cuda-11.1`，可以尝试已有的 CUDA 11.3 或 11.7。关键是不要让 `torch 1.9.1+cu111` 的扩展编译过程混到 CUDA 12.x 的工具链。
+
+如果你必须使用 CUDA 12.x 工具链，那更推荐不要强行编译 LaRSE 这套老 `torch-encoding`，而是单独用已跑通的老环境，或者用 conda 重新建一个专门的 LaRSE 环境。
+
+### 12.2 其他安装问题
+
 如果 `torch-encoding` 安装失败，优先检查：
 
 ```bash

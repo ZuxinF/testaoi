@@ -4,7 +4,7 @@ import argparse
 import json
 import random
 import shutil
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import geopandas as gpd
@@ -13,6 +13,14 @@ from shapely.geometry import box
 from shapely.ops import unary_union
 
 from building_seg.prepare_seg_dataset_from_tiles import build_tile_index, find_tiles, load_mosaic
+
+
+_WORKER_TILE_INDEX = None
+_WORKER_BUILDINGS = None
+_WORKER_CLASS_TO_ID = None
+_WORKER_PATCH_TILES = None
+_WORKER_MIN_AREA_PIXELS = None
+_WORKER_SIMPLIFY_PIXELS = None
 
 
 def parse_args():
@@ -27,7 +35,7 @@ def parse_args():
     parser.add_argument("--val-ratio", type=float, default=0.2)
     parser.add_argument("--min-area-pixels", type=float, default=16.0)
     parser.add_argument("--simplify-pixels", type=float, default=1.0)
-    parser.add_argument("--workers", type=int, default=1, help="Parallel workers for tile mosaic/geometry export.")
+    parser.add_argument("--workers", type=int, default=1, help="Process workers for tile mosaic/geometry export. Use 1 to disable parallel export.")
     parser.add_argument("--seed", type=int, default=20260707)
     return parser.parse_args()
 
@@ -128,6 +136,33 @@ def build_sample_from_tile(
     return sample_id, image, lines, len(subset)
 
 
+def init_worker(tile_index, buildings, class_to_id, patch_tiles, min_area_pixels, simplify_pixels):
+    global _WORKER_TILE_INDEX
+    global _WORKER_BUILDINGS
+    global _WORKER_CLASS_TO_ID
+    global _WORKER_PATCH_TILES
+    global _WORKER_MIN_AREA_PIXELS
+    global _WORKER_SIMPLIFY_PIXELS
+    _WORKER_TILE_INDEX = tile_index
+    _WORKER_BUILDINGS = buildings
+    _WORKER_CLASS_TO_ID = class_to_id
+    _WORKER_PATCH_TILES = patch_tiles
+    _WORKER_MIN_AREA_PIXELS = min_area_pixels
+    _WORKER_SIMPLIFY_PIXELS = simplify_pixels
+
+
+def build_sample_from_tile_worker(tile_path: Path):
+    return build_sample_from_tile(
+        tile_path,
+        _WORKER_TILE_INDEX,
+        _WORKER_BUILDINGS,
+        _WORKER_CLASS_TO_ID,
+        _WORKER_PATCH_TILES,
+        _WORKER_MIN_AREA_PIXELS,
+        _WORKER_SIMPLIFY_PIXELS,
+    )
+
+
 def main():
     args = parse_args()
     random.seed(args.seed)
@@ -179,28 +214,16 @@ def main():
             if scanned % 1000 == 0:
                 print(f"Scanned {scanned}/{len(tile_paths)}, positive={len(samples)}")
     else:
-        with ThreadPoolExecutor(max_workers=args.workers) as executor:
-            futures = [
-                executor.submit(
-                    build_sample_from_tile,
-                    tile_path,
-                    tile_index,
-                    buildings,
-                    class_to_id,
-                    args.patch_tiles,
-                    args.min_area_pixels,
-                    args.simplify_pixels,
-                )
-                for tile_path in tile_paths
-            ]
-            for future in as_completed(futures):
+        with ProcessPoolExecutor(
+            max_workers=args.workers,
+            initializer=init_worker,
+            initargs=(tile_index, buildings, class_to_id, args.patch_tiles, args.min_area_pixels, args.simplify_pixels),
+        ) as executor:
+            for sample in executor.map(build_sample_from_tile_worker, tile_paths, chunksize=32):
                 scanned += 1
-                sample = future.result()
                 if sample is not None:
                     samples.append(sample)
                 if args.max_positive > 0 and len(samples) >= args.max_positive:
-                    for pending in futures:
-                        pending.cancel()
                     break
                 if scanned % 1000 == 0:
                     print(f"Scanned {scanned}/{len(tile_paths)}, positive={len(samples)}")

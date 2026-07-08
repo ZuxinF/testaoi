@@ -353,7 +353,8 @@ python -m building_seg.prepare_yolo_seg_from_tiles \
 注意：
 
 - `--max-positive 0` 表示不限制正样本数量，脚本会扫描全部 z18 tiles，但只导出和 GPKG polygon 有交集、且能生成 YOLO segmentation label 的 patch。
-- `--workers 8` 会多线程读 tile、拼图和生成 polygon label。A6000 机器如果 CPU/磁盘跟得上，可以试 `--workers 16`；如果发现磁盘读写很满或内存压力大，就降回 `8` 或 `4`。
+- `--workers 8` 会用多进程读 tile、拼图和生成 polygon label。这里不用线程池，因为 Shapely/GEOS 在线程里可能段错误。
+- A6000 机器如果 CPU/磁盘跟得上，可以试 `--workers 16`；如果发现磁盘读写很满、内存压力大，或多进程仍然不稳定，就降回 `8`、`4`，最稳是 `--workers 1`。
 - 这里不额外生成纯背景样本，因为你的真实 GT 存在漏标风险。
 
 ### 6.2 检查 YOLO polygon 标注是否对齐
