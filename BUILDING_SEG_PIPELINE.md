@@ -311,7 +311,8 @@ python -m building_seg.prepare_yolo_seg_from_tiles \
   --label-field Function \
   --patch-tiles 2 \
   --max-positive 100 \
-  --val-ratio 0.2
+  --val-ratio 0.2 \
+  --workers 4
 ```
 
 输出结构：
@@ -345,10 +346,15 @@ python -m building_seg.prepare_yolo_seg_from_tiles \
   --label-field Function \
   --patch-tiles 2 \
   --max-positive 0 \
-  --val-ratio 0.2
+  --val-ratio 0.2 \
+  --workers 8
 ```
 
-注意：`--max-positive 0` 表示不限制正样本数量，脚本会扫描全部 z18 tiles，但只导出和 GPKG polygon 有交集、且能生成 YOLO segmentation label 的 patch。这里不额外生成纯背景样本，因为你的真实 GT 存在漏标风险。
+注意：
+
+- `--max-positive 0` 表示不限制正样本数量，脚本会扫描全部 z18 tiles，但只导出和 GPKG polygon 有交集、且能生成 YOLO segmentation label 的 patch。
+- `--workers 8` 会多线程读 tile、拼图和生成 polygon label。A6000 机器如果 CPU/磁盘跟得上，可以试 `--workers 16`；如果发现磁盘读写很满或内存压力大，就降回 `8` 或 `4`。
+- 这里不额外生成纯背景样本，因为你的真实 GT 存在漏标风险。
 
 ### 6.2 检查 YOLO polygon 标注是否对齐
 

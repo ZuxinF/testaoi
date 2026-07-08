@@ -4,6 +4,7 @@ import argparse
 import json
 import random
 import shutil
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import geopandas as gpd
@@ -26,6 +27,7 @@ def parse_args():
     parser.add_argument("--val-ratio", type=float, default=0.2)
     parser.add_argument("--min-area-pixels", type=float, default=16.0)
     parser.add_argument("--simplify-pixels", type=float, default=1.0)
+    parser.add_argument("--workers", type=int, default=1, help="Parallel workers for tile mosaic/geometry export.")
     parser.add_argument("--seed", type=int, default=20260707)
     return parser.parse_args()
 
@@ -78,6 +80,54 @@ def write_sample(
     (label_dir / f"{sample_id}.txt").write_text("\n".join(yolo_lines) + ("\n" if yolo_lines else ""))
 
 
+def build_sample_from_tile(
+    tile_path: Path,
+    tile_index,
+    buildings: gpd.GeoDataFrame,
+    class_to_id: dict[str, int],
+    patch_tiles: int,
+    min_area_pixels: float,
+    simplify_pixels: float,
+):
+    image, bounds, transform, xyz = load_mosaic(tile_path, tile_index, patch_tiles)
+    if image is None:
+        return None
+    width, height = image.size
+    patch_box = box(*bounds)
+    subset = buildings[buildings.intersects(patch_box)]
+    if subset.empty:
+        return None
+
+    lines = []
+    patch_area = pixel_area(transform)
+    for label, geom in zip(subset["__label__"], subset.geometry):
+        if geom is None or geom.is_empty:
+            continue
+        clipped = geom.intersection(patch_box)
+        if clipped.is_empty:
+            continue
+        if clipped.area / patch_area < min_area_pixels:
+            continue
+        # Dissolve geometry collections from invalid or multipart intersections.
+        if clipped.geom_type == "GeometryCollection":
+            polys = [g for g in clipped.geoms if g.geom_type in {"Polygon", "MultiPolygon"} and not g.is_empty]
+            if not polys:
+                continue
+            clipped = unary_union(polys)
+        segments = polygon_to_yolo_segments(clipped, transform, width, height, simplify_pixels)
+        for segment in segments:
+            class_id = class_to_id[str(label).strip() or "其他"]
+            values = " ".join(f"{v:.6f}" for v in segment)
+            lines.append(f"{class_id} {values}")
+
+    if not lines:
+        return None
+
+    z, x, y = xyz
+    sample_id = f"z{z}_x{x}_y{y}_s{width}"
+    return sample_id, image, lines, len(subset)
+
+
 def main():
     args = parse_args()
     random.seed(args.seed)
@@ -110,49 +160,50 @@ def main():
     random.shuffle(tile_paths)
     samples = []
     scanned = 0
-    for tile_path in tile_paths:
-        scanned += 1
-        image, bounds, transform, xyz = load_mosaic(tile_path, tile_index, args.patch_tiles)
-        if image is None:
-            continue
-        width, height = image.size
-        patch_box = box(*bounds)
-        subset = buildings[buildings.intersects(patch_box)]
-        if subset.empty:
-            continue
-
-        lines = []
-        patch_area = pixel_area(transform)
-        for label, geom in zip(subset["__label__"], subset.geometry):
-            if geom is None or geom.is_empty:
-                continue
-            clipped = geom.intersection(patch_box)
-            if clipped.is_empty:
-                continue
-            if clipped.area / patch_area < args.min_area_pixels:
-                continue
-            # Dissolve geometry collections from invalid or multipart intersections.
-            if clipped.geom_type == "GeometryCollection":
-                polys = [g for g in clipped.geoms if g.geom_type in {"Polygon", "MultiPolygon"} and not g.is_empty]
-                if not polys:
-                    continue
-                clipped = unary_union(polys)
-            segments = polygon_to_yolo_segments(clipped, transform, width, height, args.simplify_pixels)
-            for segment in segments:
-                class_id = class_to_id[str(label).strip() or "其他"]
-                values = " ".join(f"{v:.6f}" for v in segment)
-                lines.append(f"{class_id} {values}")
-
-        if not lines:
-            continue
-
-        z, x, y = xyz
-        sample_id = f"z{z}_x{x}_y{y}_s{width}"
-        samples.append((sample_id, image, lines, len(subset)))
-        if args.max_positive > 0 and len(samples) >= args.max_positive:
-            break
-        if scanned % 1000 == 0:
-            print(f"Scanned {scanned}/{len(tile_paths)}, positive={len(samples)}")
+    if args.workers <= 1:
+        for tile_path in tile_paths:
+            scanned += 1
+            sample = build_sample_from_tile(
+                tile_path,
+                tile_index,
+                buildings,
+                class_to_id,
+                args.patch_tiles,
+                args.min_area_pixels,
+                args.simplify_pixels,
+            )
+            if sample is not None:
+                samples.append(sample)
+            if args.max_positive > 0 and len(samples) >= args.max_positive:
+                break
+            if scanned % 1000 == 0:
+                print(f"Scanned {scanned}/{len(tile_paths)}, positive={len(samples)}")
+    else:
+        with ThreadPoolExecutor(max_workers=args.workers) as executor:
+            futures = [
+                executor.submit(
+                    build_sample_from_tile,
+                    tile_path,
+                    tile_index,
+                    buildings,
+                    class_to_id,
+                    args.patch_tiles,
+                    args.min_area_pixels,
+                    args.simplify_pixels,
+                )
+                for tile_path in tile_paths
+            ]
+            for future in as_completed(futures):
+                scanned += 1
+                sample = future.result()
+                if sample is not None:
+                    samples.append(sample)
+                if args.max_positive > 0 and len(samples) >= args.max_positive:
+                    for pending in futures:
+                        pending.cancel()
+                    break
+                if scanned % 1000 == 0:
+                    print(f"Scanned {scanned}/{len(tile_paths)}, positive={len(samples)}")
 
     if not samples:
         raise RuntimeError("No YOLO samples generated. Check tile/GPKG overlap.")
@@ -192,6 +243,7 @@ def main():
         "train_samples": len(samples) - n_val,
         "val_samples": n_val,
         "tiles_scanned": scanned,
+        "workers": args.workers,
     }
     (out_dir / "metadata" / "dataset.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
     (out_dir / "metadata" / "samples.json").write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
