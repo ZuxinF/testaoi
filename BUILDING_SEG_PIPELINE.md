@@ -182,23 +182,23 @@ data/building_seg_tiles_512_debug/mask_previews/legend.txt
 python -c "from PIL import Image; import numpy as np; import pathlib; root=pathlib.Path('data/building_seg_tiles_512_debug/masks'); p=sorted(root.glob('*.png'))[0]; a=np.array(Image.open(p)); print(p.name, np.unique(a, return_counts=True))"
 ```
 
-确认 smoke test 成功后，再跑大一点的数据集：
+确认 smoke test 成功后，可以把全部 z18 tiles 中有建筑标注覆盖的 patch 都导出：
 
 ```bash
 python -m building_seg.prepare_seg_dataset_from_tiles \
   --tiles data/tianditu/nansha_z18/tiles \
   --labels data/南沙区建筑物.gpkg \
-  --out data/building_seg_tiles_512_train \
+  --out data/building_seg_tiles_512_all \
   --label-field Function \
   --patch-tiles 2 \
-  --max-positive 5000 \
+  --max-positive 0 \
   --negative 0 \
   --val-ratio 0.2
 ```
 
 参数说明：
 
-- `--max-positive`：最多导出多少个含建筑标注的 512×512 patch。
+- `--max-positive`：最多导出多少个含建筑标注的 512×512 patch；设为 `0` 表示不限制，扫描全部 tiles 并导出所有正样本。
 - `--negative`：额外导出多少个全背景 patch。当前真实 GT 有漏标风险，建议保持为 `0`，不要把无标注区域强行当成确定背景。
 - `--patch-tiles`：每边拼接几个 tile。`2` 表示 `2×2` 个 256 tile 合成一张 512×512 训练图。
 - `--label-field`：GPKG 里表示建筑功能的字段名。如果真实字段不是 `Function`，这里要改。
@@ -221,8 +221,8 @@ python -m building_seg.train \
 
 ```bash
 python -m building_seg.train \
-  --dataset data/building_seg_tiles_512_train \
-  --out data/building_seg_tiles_512_train/checkpoints/tiny_unet.pt \
+  --dataset data/building_seg_tiles_512_all \
+  --out data/building_seg_tiles_512_all/checkpoints/tiny_unet.pt \
   --model tiny_unet \
   --epochs 20 \
   --batch-size 8 \
@@ -270,9 +270,9 @@ geometry
 ```bash
 python -m building_seg.predict_tiles_to_polygon \
   --tiles data/tianditu/nansha_z18/tiles \
-  --checkpoint data/building_seg_tiles_512_train/checkpoints/tiny_unet.pt \
-  --out-gpkg data/building_seg_tiles_512_train/predictions_tiles/pred_polygons.gpkg \
-  --out-mask-dir data/building_seg_tiles_512_train/predictions_tiles/masks \
+  --checkpoint data/building_seg_tiles_512_all/checkpoints/tiny_unet.pt \
+  --out-gpkg data/building_seg_tiles_512_all/predictions_tiles/pred_polygons.gpkg \
+  --out-mask-dir data/building_seg_tiles_512_all/predictions_tiles/masks \
   --patch-tiles 2 \
   --stride-tiles 2 \
   --limit 1000
@@ -335,20 +335,20 @@ class_id x1 y1 x2 y2 x3 y3 ...
 
 其中 `x/y` 是 `0~1` 的归一化像素坐标。
 
-真实环境可以直接扩大样本数：
+真实环境建议直接导出全部 z18 tiles 中有 polygon 标注覆盖的 patch：
 
 ```bash
 python -m building_seg.prepare_yolo_seg_from_tiles \
   --tiles data/tianditu/nansha_z18/tiles \
   --labels data/南沙区建筑物.gpkg \
-  --out data/yolo26_seg_tiles_512_train \
+  --out data/yolo26_seg_tiles_512_all \
   --label-field Function \
   --patch-tiles 2 \
-  --max-positive 5000 \
+  --max-positive 0 \
   --val-ratio 0.2
 ```
 
-注意：这里不额外生成纯背景样本，因为你的真实 GT 存在漏标风险。先只用有 polygon 标注的 patch 训练和评估。
+注意：`--max-positive 0` 表示不限制正样本数量，脚本会扫描全部 z18 tiles，但只导出和 GPKG polygon 有交集、且能生成 YOLO segmentation label 的 patch。这里不额外生成纯背景样本，因为你的真实 GT 存在漏标风险。
 
 ### 6.2 检查 YOLO polygon 标注是否对齐
 
@@ -396,45 +396,116 @@ yolo segment train \
 device=cpu
 ```
 
-### 6.4 正式一点的短训命令
+### 6.4 A6000 48GB 推荐训练配置
 
-真实数据上可以先用 nano 版短训：
+Ultralytics 官方 YOLO26 segmentation 模型有 `n/s/m/l/x` 五个尺寸，`-seg` 后缀表示实例分割模型，例如 `yolo26l-seg.pt`。A6000 有 48GB 显存，不建议只停留在 `n/s`，可以直接从 `l` 开始；如果数据量足够、训练时间允许，再试 `x`。
+
+推荐顺序：
+
+```text
+第一轮完整基线：yolo26l-seg.pt
+更强但更慢：yolo26x-seg.pt
+快速排错/小数据：yolo26m-seg.pt
+```
+
+官方 COCO segmentation 参考性能中，`yolo26l-seg` 的 mask mAP50-95 高于 `m/s/n`，`yolo26x-seg` 更高但参数和 FLOPs 明显更大。A6000 48GB 跑 `l` 很宽裕，跑 `x` 也可以尝试。
+
+#### 推荐完整训练：YOLO26-L
+
+适合先训一个比较像样的结果：
 
 ```bash
 yolo segment train \
-  model=yolo26n-seg.pt \
-  data=data/yolo26_seg_tiles_512_train/data.yaml \
-  imgsz=512 \
-  epochs=50 \
-  batch=8 \
+  model=yolo26l-seg.pt \
+  data=data/yolo26_seg_tiles_512_all/data.yaml \
+  imgsz=768 \
+  epochs=150 \
+  batch=16 \
   device=0 \
   project=data/yolo26_runs \
-  name=yolo26n_seg_512 \
-  workers=4
+  name=yolo26l_seg_768_e150 \
+  workers=8 \
+  patience=40 \
+  cache=disk \
+  cos_lr=True \
+  close_mosaic=20 \
+  amp=True
 ```
 
-如果显存足够，再试 small 版：
+为什么这样设：
+
+- `model=yolo26l-seg.pt`：A6000 上性价比比较好，明显强于 n/s/m，训练成本又低于 x。
+- `imgsz=768`：建筑物轮廓和小建筑比 512 更需要分辨率；A6000 48GB 可以承受。
+- `batch=16`：A6000 48GB 对 YOLO26-L + 768 通常比较稳；如果 OOM 改成 `batch=8`。
+- `epochs=150`：比 smoke test 更完整；如果验证 mAP 还在涨，可以继续训到 200。
+- `cache=disk`：数据较多时减少反复读图开销，比 `cache=True` 更省内存。
+- `close_mosaic=20`：最后 20 个 epoch 关闭 mosaic，让模型更贴近真实瓦片分布。
+
+#### 更强模型：YOLO26-X
+
+如果 `l` 跑通且显存还有余量，可以试：
 
 ```bash
 yolo segment train \
-  model=yolo26s-seg.pt \
-  data=data/yolo26_seg_tiles_512_train/data.yaml \
-  imgsz=512 \
-  epochs=50 \
+  model=yolo26x-seg.pt \
+  data=data/yolo26_seg_tiles_512_all/data.yaml \
+  imgsz=768 \
+  epochs=150 \
   batch=8 \
   device=0 \
   project=data/yolo26_runs \
-  name=yolo26s_seg_512 \
-  workers=4
+  name=yolo26x_seg_768_e150 \
+  workers=8 \
+  patience=40 \
+  cache=disk \
+  cos_lr=True \
+  close_mosaic=20 \
+  amp=True
 ```
+
+如果 `x` 显存不够，优先降：
+
+```text
+batch=4
+```
+
+再不够才把：
+
+```text
+imgsz=640
+```
+
+#### 更高分辨率轮廓实验
+
+如果你的建筑轮廓很小、边界很细，可以在 `l` 模型上试：
+
+```bash
+yolo segment train \
+  model=yolo26l-seg.pt \
+  data=data/yolo26_seg_tiles_512_all/data.yaml \
+  imgsz=1024 \
+  epochs=150 \
+  batch=8 \
+  device=0 \
+  project=data/yolo26_runs \
+  name=yolo26l_seg_1024_e150 \
+  workers=8 \
+  patience=40 \
+  cache=disk \
+  cos_lr=True \
+  close_mosaic=20 \
+  amp=True
+```
+
+`imgsz=1024` 对轮廓更友好，但训练更慢。建议先比较 `yolo26l_seg_768_e150` 和 `yolo26l_seg_1024_e150` 的 `Mask mAP50-95`，不要只看肉眼图。
 
 ### 6.5 验证精度
 
 ```bash
 yolo segment val \
-  model=runs/segment/data/yolo26_runs/yolo26n_seg_512/weights/best.pt \
-  data=data/yolo26_seg_tiles_512_train/data.yaml \
-  imgsz=512 \
+  model=runs/segment/data/yolo26_runs/yolo26l_seg_768_e150/weights/best.pt \
+  data=data/yolo26_seg_tiles_512_all/data.yaml \
+  imgsz=768 \
   device=0
 ```
 
@@ -453,11 +524,11 @@ Mask(P/R/mAP50/mAP50-95)
 
 ```bash
 python -m building_seg.visualize_yolo_predictions \
-  --model runs/segment/data/yolo26_runs/yolo26n_seg_512/weights/best.pt \
-  --dataset data/yolo26_seg_tiles_512_train \
+  --model runs/segment/data/yolo26_runs/yolo26l_seg_768_e150/weights/best.pt \
+  --dataset data/yolo26_seg_tiles_512_all \
   --split val \
-  --out data/yolo26_seg_tiles_512_train/prediction_overlays/val \
-  --imgsz 512 \
+  --out data/yolo26_seg_tiles_512_all/prediction_overlays/val \
+  --imgsz 768 \
   --conf 0.05 \
   --device 0 \
   --limit 100
@@ -476,13 +547,13 @@ python -m building_seg.visualize_yolo_predictions \
 
 ```bash
 yolo segment predict \
-  model=runs/segment/data/yolo26_runs/yolo26n_seg_512/weights/best.pt \
-  source=data/yolo26_seg_tiles_512_train/images/val \
-  imgsz=512 \
+  model=runs/segment/data/yolo26_runs/yolo26l_seg_768_e150/weights/best.pt \
+  source=data/yolo26_seg_tiles_512_all/images/val \
+  imgsz=768 \
   conf=0.05 \
   device=0 \
   project=data/yolo26_runs \
-  name=yolo26n_seg_512_predict \
+  name=yolo26l_seg_768_e150_predict \
   save=True
 ```
 

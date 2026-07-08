@@ -22,7 +22,7 @@ def parse_args():
     parser.add_argument("--label-field", default="Function")
     parser.add_argument("--extensions", default=".jpg,.png,.jpeg")
     parser.add_argument("--patch-tiles", type=int, default=2, help="2 means 2x2 XYZ tiles -> 512x512 image")
-    parser.add_argument("--max-positive", type=int, default=200)
+    parser.add_argument("--max-positive", type=int, default=200, help="Max positive patches to export. Use 0 for all positive patches.")
     parser.add_argument("--val-ratio", type=float, default=0.2)
     parser.add_argument("--min-area-pixels", type=float, default=16.0)
     parser.add_argument("--simplify-pixels", type=float, default=1.0)
@@ -149,7 +149,7 @@ def main():
         z, x, y = xyz
         sample_id = f"z{z}_x{x}_y{y}_s{width}"
         samples.append((sample_id, image, lines, len(subset)))
-        if len(samples) >= args.max_positive:
+        if args.max_positive > 0 and len(samples) >= args.max_positive:
             break
         if scanned % 1000 == 0:
             print(f"Scanned {scanned}/{len(tile_paths)}, positive={len(samples)}")

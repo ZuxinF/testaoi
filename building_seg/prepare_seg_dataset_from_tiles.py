@@ -23,7 +23,7 @@ def parse_args():
     parser.add_argument("--label-field", default="Function")
     parser.add_argument("--extensions", default=".jpg,.png,.jpeg")
     parser.add_argument("--patch-tiles", type=int, default=2, help="Number of XYZ tiles per side; 2 means 512x512 from 2x2 tiles")
-    parser.add_argument("--max-positive", type=int, default=5000, help="Max patches with labeled buildings to export")
+    parser.add_argument("--max-positive", type=int, default=5000, help="Max patches with labeled buildings to export. Use 0 for all positive patches.")
     parser.add_argument("--negative", type=int, default=0, help="Random patches without labels. Keep 0 if GT has many missing buildings.")
     parser.add_argument("--val-ratio", type=float, default=0.2)
     parser.add_argument("--seed", type=int, default=20260707)
@@ -155,12 +155,14 @@ def main():
         if image is None:
             continue
         has_positive_pixels = bool(np.any(mask > 0))
-        if has_positive_pixels and len(positive) < args.max_positive:
+        positive_not_full = args.max_positive <= 0 or len(positive) < args.max_positive
+        if has_positive_pixels and positive_not_full:
             positive.append((tile_path, image, mask, building_count, xyz))
         elif not has_positive_pixels and len(negative) < args.negative:
             negative.append((tile_path, image, mask, building_count, xyz))
 
-        if len(positive) >= args.max_positive and len(negative) >= args.negative:
+        positive_done = args.max_positive > 0 and len(positive) >= args.max_positive
+        if positive_done and len(negative) >= args.negative:
             break
 
         if scanned % 1000 == 0:
