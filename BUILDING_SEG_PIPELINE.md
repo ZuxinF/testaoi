@@ -439,6 +439,29 @@ yolo segment train \
   amp=True
 ```
 
+接着训练
+```
+yolo segment train \
+  model=data/yolo26_runs/yolo26l_seg_512_e150/weights/last.pt \
+  data=data/yolo26_seg_tiles_512_all/data.yaml \
+  imgsz=512 \
+  epochs=75 \
+  batch=32 \
+  device=0 \
+  project=data/yolo26_runs \
+  name=yolo26l_seg_512_continue_e75 \
+  workers=16 \
+  patience=30 \
+  cache=disk \
+  optimizer=MuSGD \
+  lr0=0.0001 \
+  lrf=0.1 \
+  warmup_epochs=1 \
+  cos_lr=True \
+  mosaic=0 \
+  amp=True
+```
+
 为什么这样设：
 
 - `model=yolo26l-seg.pt`：A6000 上性价比比较好，明显强于 n/s/m，训练成本又低于 x。
