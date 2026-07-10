@@ -599,7 +599,63 @@ for split_img, split_ann in [("training", "training"), ("validation", "validatio
 PY
 ```
 
-### 12.2 torch-encoding 编译时报 Unsupported .version
+### 12.2 找不到 `/home/heda/.cache/clip/RemoteCLIP-ViT-B-32.pt`
+
+如果报错：
+
+```text
+FileNotFoundError: [Errno 2] No such file or directory:
+'/home/heda/.cache/clip/RemoteCLIP-ViT-B-32.pt'
+```
+
+说明你那份 LaRSE 的 `modules/models/lseg_vit.py` 里还保留了作者机器上的硬编码路径。
+
+最新适配脚本已经会在运行时自动把这个路径重定向到：
+
+```text
+/home/f50059431/code/LaRSE/checkpoints/RemoteCLIP-ViT-B-32.pt
+```
+
+同步新版代码后重跑即可：
+
+```bash
+cd /home/f50059431/code/footprint/testaoi
+git pull
+
+conda activate <你的_larse_conda环境名>
+
+python -m building_seg.predict_larse_debug_dataset \
+  --dataset /home/f50059431/code/footprint/testaoi/data/building_seg_tiles_512_all \
+  --out /home/f50059431/code/footprint/testaoi/data/larse_eval_512_all_val \
+  --class-json /home/f50059431/code/footprint/testaoi/data/building_seg_tiles_512_all/metadata/dataset.json \
+  --split val \
+  --limit 100 \
+  --larse-dir /home/f50059431/code/LaRSE \
+  --checkpoint /home/f50059431/code/LaRSE/checkpoints/checkpoint_LARSE.ckpt \
+  --device cuda
+```
+
+正常时日志里会出现类似：
+
+```text
+Redirect RemoteCLIP checkpoint: /home/heda/.cache/clip/RemoteCLIP-ViT-B-32.pt -> /home/f50059431/code/LaRSE/checkpoints/RemoteCLIP-ViT-B-32.pt
+```
+
+如果想直接改 LaRSE 源码，也可以把 `/home/f50059431/code/LaRSE/modules/models/lseg_vit.py` 里的：
+
+```python
+torch.load(f"/home/heda/.cache/clip/RemoteCLIP-ViT-B-32.pt", map_location="cpu")
+```
+
+改成：
+
+```python
+torch.load("/home/f50059431/code/LaRSE/checkpoints/RemoteCLIP-ViT-B-32.pt", map_location="cpu")
+```
+
+不过更推荐用适配脚本的运行时重定向，这样 LaRSE 原仓库少改一点。
+
+### 12.3 torch-encoding 编译时报 Unsupported .version
 
 如果安装 `torch-encoding` 时出现类似：
 
@@ -685,7 +741,7 @@ ptxas --version
 
 如果你必须使用 CUDA 12.x 工具链，那更推荐不要强行编译 LaRSE 这套老 `torch-encoding`，而是单独用已跑通的老环境，或者用 conda 重新建一个专门的 LaRSE 环境。
 
-### 12.3 其他安装问题
+### 12.4 其他安装问题
 
 如果 `torch-encoding` 安装失败，优先检查：
 

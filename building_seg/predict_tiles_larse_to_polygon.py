@@ -148,8 +148,12 @@ def load_larse_module(args):
     if not larse_dir.exists():
         raise FileNotFoundError(f"LaRSE dir not found: {larse_dir}")
     larse_data_path = Path(args.larse_data_path).resolve()
+    remoteclip_path = larse_dir / "checkpoints" / "RemoteCLIP-ViT-B-32.pt"
+    if not remoteclip_path.exists():
+        raise FileNotFoundError(f"RemoteCLIP checkpoint not found: {remoteclip_path}")
 
     old_cwd = Path.cwd()
+    original_torch_load = torch.load
     sys.path.insert(0, str(larse_dir))
     os.chdir(larse_dir)
     try:
@@ -158,6 +162,7 @@ def load_larse_module(args):
 
         from modules.lseg_module import LSegModule
 
+        torch.load = make_remoteclip_redirect_torch_load(original_torch_load, remoteclip_path)
         module = LSegModule.load_from_checkpoint(
             checkpoint_path=args.checkpoint,
             map_location=args.device,
@@ -185,10 +190,23 @@ def load_larse_module(args):
             activation="lrelu",
         )
     finally:
+        torch.load = original_torch_load
         os.chdir(old_cwd)
 
     module = module.to(args.device).eval()
     return module, module.val_transform
+
+
+def make_remoteclip_redirect_torch_load(original_torch_load, remoteclip_path: Path):
+    def redirected_torch_load(f, *args, **kwargs):
+        if isinstance(f, (str, os.PathLike)):
+            path = Path(f)
+            if path.name == "RemoteCLIP-ViT-B-32.pt" and not path.exists():
+                print(f"Redirect RemoteCLIP checkpoint: {path} -> {remoteclip_path}")
+                f = str(remoteclip_path)
+        return original_torch_load(f, *args, **kwargs)
+
+    return redirected_torch_load
 
 
 def register_buff1w_dataset(larse_dir: Path):
