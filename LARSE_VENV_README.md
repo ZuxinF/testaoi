@@ -139,6 +139,40 @@ python -m building_seg.predict_larse_debug_dataset \
 xdg-open /home/f50059431/code/footprint/testaoi/data/larse_eval_512_all_val/index.html
 ```
 
+跑完后建议立刻做一次诊断统计，用来判断是全背景、类别映射问题，还是模型确实对不上 GT：
+
+```bash
+python -m building_seg.analyze_larse_eval \
+  --eval-dir /home/f50059431/code/footprint/testaoi/data/larse_eval_512_all_val \
+  --dataset /home/f50059431/code/footprint/testaoi/data/building_seg_tiles_512_all \
+  --out-json /home/f50059431/code/footprint/testaoi/data/larse_eval_512_all_val/diagnosis.json
+```
+
+重点看输出里的三块：
+
+```text
+Raw LaRSE classes, 1-12
+Remapped prediction classes
+GT classes
+```
+
+判断方式：
+
+```text
+1. Raw LaRSE 基本全是 11 background：
+   大概率是 LaRSE checkpoint 对当前影像直接迁移失败，或输入预处理/权重加载异常。
+
+2. Raw LaRSE 有非背景，但 Remapped prediction 全是 0 background：
+   大概率是 LaRSE -> Function 类别映射不合适。
+
+3. Remapped prediction 有前景，但 fg_acc 仍然全是 0：
+   打开 HTML 看红色预测是否落在真实建筑上。
+   如果落在建筑上但 GT 没标，是漏标影响；如果完全不贴建筑，是泛化差。
+
+4. 如果在 BUFF 原数据上 LaRSE 正常，而在这里全背景：
+   环境和 checkpoint 基本没问题，主要是跨数据迁移能力不足。
+```
+
 如果确认能跑，再把 `--limit 100` 改大，例如：
 
 ```bash

@@ -653,6 +653,23 @@ python -m building_seg.predict_tiles_larse_to_polygon \
 - 默认会自动寻找 `../LaRSE` 和 `../../LaRSE`，checkpoint 默认使用 `<LaRSE>/checkpoints/checkpoint_LARSE.ckpt`。如果另一台电脑的目录就是工作目录的 `../../LaRSE/checkpoints/`，一般不需要额外指定路径。
 - 如果目录结构不一样，手动加 `--larse-dir /path/to/LaRSE`，或加 `--checkpoint /path/to/checkpoint_LARSE.ckpt`。
 - `--out-larse-mask-dir` 保存 LaRSE 原始 1-12 类 mask，方便看它原始判断。
+
+如果已经用 `predict_larse_debug_dataset` 生成了 GT 对齐可视化目录，可以用下面的诊断脚本判断是全背景、类别映射问题，还是模型确实对不上 GT：
+
+```bash
+python -m building_seg.analyze_larse_eval \
+  --eval-dir data/larse_eval_512_all_val \
+  --dataset data/building_seg_tiles_512_all \
+  --out-json data/larse_eval_512_all_val/diagnosis.json
+```
+
+诊断重点：
+
+```text
+Raw LaRSE classes, 1-12：LaRSE 原始 BUFF 类别输出
+Remapped prediction classes：映射到当前 Function 后的输出
+GT classes：当前数据的真实 mask 类别分布
+```
 - `--out-mask-dir` 保存映射到当前 `Function` 类之后的 ID mask。
 - `--out-gpkg` 保存映射后的 polygon 结果。
 - 这个结果是跨城市、跨影像源的直接迁移基线，不等于最终精度；建议先用真实数据切出训练/验证集，再按验证集统计各类 IoU 和 polygon 级准确率。
