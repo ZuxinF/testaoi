@@ -29,8 +29,8 @@ LaRSE 项目默认位置：
 如果在另一台机器上运行，当前已知路径是：
 
 ```text
-testaoi 项目：/home/f50059431/code/fofotprint/testaoi
-已准备好的 512 数据：/home/f50059431/code/fofotprint/testaoi/data/building_seg_tiles_512_all
+testaoi 项目：/home/f50059431/code/footprint/testaoi
+已准备好的 512 数据：/home/f50059431/code/footprint/testaoi/data/building_seg_tiles_512_all
 LaRSE 项目：/home/f50059431/code/LaRSE
 RemoteCLIP：/home/f50059431/code/LaRSE/checkpoints/RemoteCLIP-ViT-B-32.pt
 ```
@@ -38,7 +38,7 @@ RemoteCLIP：/home/f50059431/code/LaRSE/checkpoints/RemoteCLIP-ViT-B-32.pt
 先进入项目目录：
 
 ```bash
-cd /home/f50059431/code/fofotprint/testaoi
+cd /home/f50059431/code/footprint/testaoi
 conda activate <你的_larse_conda环境名>
 ```
 
@@ -96,7 +96,7 @@ _REMOTECLIP_VIT_B32 = os.path.join(_PROJECT_ROOT, "checkpoints", "RemoteCLIP-ViT
 如果你的数据目录已经是：
 
 ```text
-/home/f50059431/code/fofotprint/testaoi/data/building_seg_tiles_512_all
+/home/f50059431/code/footprint/testaoi/data/building_seg_tiles_512_all
 ```
 
 并且里面有：
@@ -112,13 +112,13 @@ metadata/dataset.json
 优先跑这个 GT 对齐可视化命令。它会对验证集 patch 推理，并把原图、GT、LaRSE 预测、误差图写成 HTML：
 
 ```bash
-cd /home/f50059431/code/fofotprint/testaoi
+cd /home/f50059431/code/footprint/testaoi
 conda activate <你的_larse_conda环境名>
 
 python -m building_seg.predict_larse_debug_dataset \
-  --dataset /home/f50059431/code/fofotprint/testaoi/data/building_seg_tiles_512_all \
-  --out /home/f50059431/code/fofotprint/testaoi/data/larse_eval_512_all_val \
-  --class-json /home/f50059431/code/fofotprint/testaoi/data/building_seg_tiles_512_all/metadata/dataset.json \
+  --dataset /home/f50059431/code/footprint/testaoi/data/building_seg_tiles_512_all \
+  --out /home/f50059431/code/footprint/testaoi/data/larse_eval_512_all_val \
+  --class-json /home/f50059431/code/footprint/testaoi/data/building_seg_tiles_512_all/metadata/dataset.json \
   --split val \
   --limit 100 \
   --larse-dir /home/f50059431/code/LaRSE \
@@ -129,23 +129,23 @@ python -m building_seg.predict_larse_debug_dataset \
 输出结果：
 
 ```text
-/home/f50059431/code/fofotprint/testaoi/data/larse_eval_512_all_val/index.html
-/home/f50059431/code/fofotprint/testaoi/data/larse_eval_512_all_val/metrics.json
+/home/f50059431/code/footprint/testaoi/data/larse_eval_512_all_val/index.html
+/home/f50059431/code/footprint/testaoi/data/larse_eval_512_all_val/metrics.json
 ```
 
 打开 HTML：
 
 ```bash
-xdg-open /home/f50059431/code/fofotprint/testaoi/data/larse_eval_512_all_val/index.html
+xdg-open /home/f50059431/code/footprint/testaoi/data/larse_eval_512_all_val/index.html
 ```
 
 如果确认能跑，再把 `--limit 100` 改大，例如：
 
 ```bash
 python -m building_seg.predict_larse_debug_dataset \
-  --dataset /home/f50059431/code/fofotprint/testaoi/data/building_seg_tiles_512_all \
-  --out /home/f50059431/code/fofotprint/testaoi/data/larse_eval_512_all_val_1000 \
-  --class-json /home/f50059431/code/fofotprint/testaoi/data/building_seg_tiles_512_all/metadata/dataset.json \
+  --dataset /home/f50059431/code/footprint/testaoi/data/building_seg_tiles_512_all \
+  --out /home/f50059431/code/footprint/testaoi/data/larse_eval_512_all_val_1000 \
+  --class-json /home/f50059431/code/footprint/testaoi/data/building_seg_tiles_512_all/metadata/dataset.json \
   --split val \
   --limit 1000 \
   --larse-dir /home/f50059431/code/LaRSE \
@@ -157,11 +157,11 @@ python -m building_seg.predict_larse_debug_dataset \
 
 ```bash
 python -m building_seg.predict_tiles_larse_to_polygon \
-  --tiles /home/f50059431/code/fofotprint/testaoi/data/tianditu/nansha_z18/tiles \
-  --class-json /home/f50059431/code/fofotprint/testaoi/data/building_seg_tiles_512_all/metadata/dataset.json \
-  --out-gpkg /home/f50059431/code/fofotprint/testaoi/data/larse_tiles_512_all/pred_larse_polygons_100.gpkg \
-  --out-mask-dir /home/f50059431/code/fofotprint/testaoi/data/larse_tiles_512_all/masks_100 \
-  --out-larse-mask-dir /home/f50059431/code/fofotprint/testaoi/data/larse_tiles_512_all/larse_raw_masks_100 \
+  --tiles /home/f50059431/code/footprint/testaoi/data/tianditu/nansha_z18/tiles \
+  --class-json /home/f50059431/code/footprint/testaoi/data/building_seg_tiles_512_all/metadata/dataset.json \
+  --out-gpkg /home/f50059431/code/footprint/testaoi/data/larse_tiles_512_all/pred_larse_polygons_100.gpkg \
+  --out-mask-dir /home/f50059431/code/footprint/testaoi/data/larse_tiles_512_all/masks_100 \
+  --out-larse-mask-dir /home/f50059431/code/footprint/testaoi/data/larse_tiles_512_all/larse_raw_masks_100 \
   --patch-tiles 2 \
   --stride-tiles 2 \
   --limit 100 \
