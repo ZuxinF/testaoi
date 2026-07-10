@@ -153,6 +153,7 @@ python -m building_seg.analyze_larse_eval \
 ```text
 Raw LaRSE classes, 1-12
 Remapped prediction classes
+Remapped prediction classes with current code
 GT classes
 ```
 
@@ -164,6 +165,8 @@ GT classes
 
 2. Raw LaRSE 有非背景，但 Remapped prediction 全是 0 background：
    大概率是 LaRSE -> Function 类别映射不合适。
+   新版脚本已支持中文类别名和英文类别名，例如 Residential、Public service、Commercial、Educational。
+   如果输出里出现 Remapped prediction classes with current code，说明旧结果可以用新版映射重新解释。
 
 3. Remapped prediction 有前景，但 fg_acc 仍然全是 0：
    打开 HTML 看红色预测是否落在真实建筑上。

@@ -8,6 +8,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+from building_seg.predict_tiles_larse_to_polygon import LARSE_LABELS, make_remap
+
 
 LARSE_LABELS_1_BASED = {
     1: "dense residential",
@@ -133,6 +135,15 @@ def main():
     raw_counter = load_counter(raw_paths)
     pred_counter = load_counter(pred_paths)
     gt_counter = load_counter(gt_paths)
+    simulated_pred_counter: Counter[int] = Counter()
+    if target_names and raw_paths:
+        remap = make_remap(target_names)
+        for path in raw_paths:
+            raw = np.asarray(Image.open(path), dtype=np.uint8)
+            raw_zero_based = np.clip(raw.astype(np.int16) - 1, 0, len(LARSE_LABELS) - 1).astype(np.uint8)
+            pred = remap[raw_zero_based]
+            values, counts = np.unique(pred, return_counts=True)
+            simulated_pred_counter.update({int(value): int(count) for value, count in zip(values, counts)})
 
     sample_count = len(metrics)
     avg_fg_acc = sum(float(row.get("foreground_accuracy", 0)) for row in metrics) / max(sample_count, 1)
@@ -151,10 +162,13 @@ def main():
 
     raw_rows = counter_to_rows(raw_counter, LARSE_LABELS_1_BASED, args.top)
     pred_rows = counter_to_rows(pred_counter, target_names, args.top)
+    simulated_pred_rows = counter_to_rows(simulated_pred_counter, target_names, args.top)
     gt_rows = counter_to_rows(gt_counter, target_names, args.top)
 
     print_rows("Raw LaRSE classes, 1-12", raw_rows)
     print_rows("Remapped prediction classes", pred_rows)
+    if simulated_pred_counter and simulated_pred_counter != pred_counter:
+        print_rows("Remapped prediction classes with current code", simulated_pred_rows)
     print_rows("GT classes", gt_rows)
 
     diagnosis = make_diagnosis(metrics, raw_counter, pred_counter, gt_counter)
@@ -173,6 +187,7 @@ def main():
         "avg_foreground_accuracy": avg_fg_acc,
         "raw_larse_classes": raw_rows,
         "remapped_prediction_classes": pred_rows,
+        "remapped_prediction_classes_with_current_code": simulated_pred_rows,
         "gt_classes": gt_rows,
         "diagnosis": diagnosis,
     }

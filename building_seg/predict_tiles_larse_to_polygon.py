@@ -47,18 +47,18 @@ DEFAULT_TARGET_CLASS_NAMES = [
 ]
 
 DEFAULT_LARSE_TO_TARGET = {
-    "dense residential": "居住",
-    "business": "办公",
-    "commercial": "商业",
-    "residential": "居住",
-    "factory": "工业",
-    "government": "公共服务",
-    "hospital": "医疗",
-    "resort": "其他",
-    "public": "公共服务",
-    "school": "教育",
-    "background": "background",
-    "others": "其他",
+    "dense residential": ["居住", "Residential", "residential"],
+    "business": ["办公", "Office", "Business", "Commercial", "commercial"],
+    "commercial": ["商业", "Commercial", "commercial"],
+    "residential": ["居住", "Residential", "residential"],
+    "factory": ["工业", "Industrial", "industrial"],
+    "government": ["公共服务", "Public service", "public service"],
+    "hospital": ["医疗", "Medical", "Healthcare", "Public service", "public service"],
+    "resort": ["其他", "Sport and art", "Recreation", "others"],
+    "public": ["公共服务", "Public service", "public service"],
+    "school": ["教育", "Educational", "education", "Public service", "public service"],
+    "background": ["background"],
+    "others": ["其他", "others", "Unknown", "unknown"],
 }
 
 
@@ -136,11 +136,39 @@ def load_target_class_names(path: str | None) -> list[str]:
 
 def make_remap(class_names: list[str]) -> np.ndarray:
     class_to_id = {name: idx for idx, name in enumerate(class_names)}
+    normalized_to_id = {normalize_class_name(name): idx for idx, name in enumerate(class_names)}
     remap = np.zeros(len(LARSE_LABELS), dtype=np.uint8)
     for idx, larse_name in enumerate(LARSE_LABELS):
-        target_name = DEFAULT_LARSE_TO_TARGET[larse_name]
-        remap[idx] = class_to_id.get(target_name, class_to_id.get("其他", 0))
+        target_names = DEFAULT_LARSE_TO_TARGET[larse_name]
+        remap[idx] = find_target_class_id(target_names, class_to_id, normalized_to_id)
+    print_larse_remap(class_names, remap)
     return remap
+
+
+def normalize_class_name(name: str) -> str:
+    return " ".join(str(name).strip().lower().replace("_", " ").replace("-", " ").split())
+
+
+def find_target_class_id(
+    candidates: list[str],
+    class_to_id: dict[str, int],
+    normalized_to_id: dict[str, int],
+) -> int:
+    for candidate in candidates:
+        if candidate in class_to_id:
+            return class_to_id[candidate]
+        normalized = normalize_class_name(candidate)
+        if normalized in normalized_to_id:
+            return normalized_to_id[normalized]
+    return normalized_to_id.get("background", 0)
+
+
+def print_larse_remap(class_names: list[str], remap: np.ndarray):
+    print("LaRSE -> target class remap:")
+    for idx, larse_name in enumerate(LARSE_LABELS):
+        target_id = int(remap[idx])
+        target_name = class_names[target_id] if 0 <= target_id < len(class_names) else "INVALID"
+        print(f"  {idx + 1:>2} {larse_name:<18} -> {target_id}: {target_name}")
 
 
 def load_larse_module(args):

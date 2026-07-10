@@ -668,8 +668,11 @@ python -m building_seg.analyze_larse_eval \
 ```text
 Raw LaRSE classes, 1-12：LaRSE 原始 BUFF 类别输出
 Remapped prediction classes：映射到当前 Function 后的输出
+Remapped prediction classes with current code：用当前新版映射对旧 raw mask 重新解释后的输出
 GT classes：当前数据的真实 mask 类别分布
 ```
+
+当前映射同时兼容中文类别名和英文类别名，例如 `居住/Residential`、`公共服务/Public service`、`商业/Commercial`、`教育/Educational`、`工业/Industrial`。
 - `--out-mask-dir` 保存映射到当前 `Function` 类之后的 ID mask。
 - `--out-gpkg` 保存映射后的 polygon 结果。
 - 这个结果是跨城市、跨影像源的直接迁移基线，不等于最终精度；建议先用真实数据切出训练/验证集，再按验证集统计各类 IoU 和 polygon 级准确率。
