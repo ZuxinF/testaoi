@@ -2,6 +2,12 @@
 
 这份说明用于在 `footprint/testaoi` 项目里接入 `../../LaRSE`，用 LaRSE checkpoint 测一测当前南沙 tiles + GPKG 数据上的迁移效果。
 
+如果只想在远端机器直接复制命令调试，看这个短文档：
+
+```text
+LARSE_REMOTE_DEBUG_COMMANDS.md
+```
+
 你现在已经有一个 **conda 的 Python 3.8.18 环境**，推荐直接用这个环境，不再新建 `.venv`。
 
 本文命令默认从当前项目目录出发：
