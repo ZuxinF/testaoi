@@ -573,6 +573,12 @@ python -m building_seg.visualize_yolo_predictions \
 
 图上不会绘制类别名、文字标签或置信度。
 
+如果已经有 `prediction_overlays/val`，可以进一步把原图、GT 叠加、GT mask 和 YOLO 预测叠加图打包成一个可下载 HTML 文件夹。远端复制命令见：
+
+```text
+YOLO_REMOTE_HTML_COMMANDS.md
+```
+
 如果只是想看 Ultralytics 默认预测图，可以运行：
 
 ```bash
