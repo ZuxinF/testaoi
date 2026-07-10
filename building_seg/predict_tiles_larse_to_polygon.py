@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import sys
@@ -146,11 +147,15 @@ def load_larse_module(args):
     larse_dir = Path(args.larse_dir).resolve()
     if not larse_dir.exists():
         raise FileNotFoundError(f"LaRSE dir not found: {larse_dir}")
+    larse_data_path = Path(args.larse_data_path).resolve()
 
     old_cwd = Path.cwd()
     sys.path.insert(0, str(larse_dir))
     os.chdir(larse_dir)
     try:
+        register_buff1w_dataset(larse_dir)
+        ensure_dummy_buff_dataset(larse_data_path)
+
         from modules.lseg_module import LSegModule
 
         module = LSegModule.load_from_checkpoint(
@@ -184,6 +189,51 @@ def load_larse_module(args):
 
     module = module.to(args.device).eval()
     return module, module.val_transform
+
+
+def register_buff1w_dataset(larse_dir: Path):
+    try:
+        import encoding.datasets as enc_datasets
+    except Exception as exc:
+        raise RuntimeError("Failed to import encoding.datasets. Is torch-encoding installed?") from exc
+
+    registry = getattr(enc_datasets, "datasets", None)
+    if isinstance(registry, dict) and "buff1w" in registry:
+        return
+
+    buff_path = larse_dir / "buff1w.py"
+    if not buff_path.exists():
+        raise FileNotFoundError(f"Cannot register buff1w, missing file: {buff_path}")
+
+    spec = importlib.util.spec_from_file_location("encoding.datasets.buff1w", buff_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Cannot load buff1w dataset module from {buff_path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["encoding.datasets.buff1w"] = module
+    spec.loader.exec_module(module)
+
+    dataset_cls = module.BuFF1WChallengeDataset
+    setattr(enc_datasets, "BuFF1WChallengeDataset", dataset_cls)
+    if isinstance(registry, dict):
+        registry["buff1w"] = dataset_cls
+    else:
+        raise RuntimeError("encoding.datasets has no datasets registry; cannot register buff1w dynamically.")
+
+
+def ensure_dummy_buff_dataset(data_path: Path):
+    """LaRSE builds train/val datasets during module init even for inference."""
+    root = data_path / "BFF1WChallenge_for_LaRSE"
+    pairs = [
+        (root / "images" / "training" / "dummy.jpg", root / "annotations" / "training" / "dummy.png"),
+        (root / "images" / "validation" / "dummy.jpg", root / "annotations" / "validation" / "dummy.png"),
+    ]
+    for image_path, mask_path in pairs:
+        image_path.parent.mkdir(parents=True, exist_ok=True)
+        mask_path.parent.mkdir(parents=True, exist_ok=True)
+        if not image_path.exists():
+            Image.fromarray(np.full((16, 16, 3), 127, dtype=np.uint8)).save(image_path)
+        if not mask_path.exists():
+            Image.fromarray(np.full((16, 16), 11, dtype=np.uint8)).save(mask_path)
 
 
 def image_to_tensor(image: Image.Image, transform) -> torch.Tensor:

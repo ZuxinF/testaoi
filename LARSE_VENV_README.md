@@ -501,7 +501,105 @@ data/larse_tiles_debug/pred_larse_polygons_100.gpkg
 
 ## 十二、常见问题
 
-### 12.1 torch-encoding 编译时报 Unsupported .version
+### 12.1 `KeyError: 'buff1w'`
+
+如果运行：
+
+```bash
+python -m building_seg.predict_larse_debug_dataset ...
+```
+
+报错：
+
+```text
+KeyError: 'buff1w'
+```
+
+含义是：LaRSE 已经开始加载，但当前 conda 环境里的 `torch-encoding` 数据集注册表不认识 `buff1w`。
+
+最新的 `building_seg.predict_tiles_larse_to_polygon` 已经会在运行时自动做两件事：
+
+```text
+1. 从 /home/f50059431/code/LaRSE/buff1w.py 动态注册 buff1w 到 encoding.datasets
+2. 在 /home/f50059431/code/LaRSE/datasets/BFF1WChallenge_for_LaRSE 下生成最小 dummy train/val 数据
+```
+
+这个 dummy 数据只用于通过 LaRSE 初始化，不参与我们的南沙数据测试。
+
+所以在另一台机器上，先更新代码后重跑：
+
+```bash
+cd /home/f50059431/code/footprint/testaoi
+git pull
+
+conda activate <你的_larse_conda环境名>
+
+python -m building_seg.predict_larse_debug_dataset \
+  --dataset /home/f50059431/code/footprint/testaoi/data/building_seg_tiles_512_all \
+  --out /home/f50059431/code/footprint/testaoi/data/larse_eval_512_all_val \
+  --class-json /home/f50059431/code/footprint/testaoi/data/building_seg_tiles_512_all/metadata/dataset.json \
+  --split val \
+  --limit 100 \
+  --larse-dir /home/f50059431/code/LaRSE \
+  --checkpoint /home/f50059431/code/LaRSE/checkpoints/checkpoint_LARSE.ckpt \
+  --device cuda
+```
+
+如果暂时不能更新代码，也可以手工注册 `buff1w`：
+
+```bash
+conda activate <你的_larse_conda环境名>
+cd /home/f50059431/code/LaRSE
+
+ENCODING_DIR=$(python - <<'PY'
+import encoding
+from pathlib import Path
+print(Path(encoding.__file__).parent)
+PY
+)
+
+cp buff1w.py "$ENCODING_DIR/datasets/buff1w.py"
+```
+
+然后编辑：
+
+```bash
+nano "$ENCODING_DIR/datasets/__init__.py"
+```
+
+加入：
+
+```python
+from .buff1w import BuFF1WChallengeDataset
+```
+
+并在 `datasets = {...}` 里加入：
+
+```python
+'buff1w': BuFF1WChallengeDataset,
+```
+
+如果继续报找不到 BUFF 数据目录，可以手工建一个最小目录：
+
+```bash
+mkdir -p /home/f50059431/code/LaRSE/datasets/BFF1WChallenge_for_LaRSE/images/training
+mkdir -p /home/f50059431/code/LaRSE/datasets/BFF1WChallenge_for_LaRSE/images/validation
+mkdir -p /home/f50059431/code/LaRSE/datasets/BFF1WChallenge_for_LaRSE/annotations/training
+mkdir -p /home/f50059431/code/LaRSE/datasets/BFF1WChallenge_for_LaRSE/annotations/validation
+
+python - <<'PY'
+from pathlib import Path
+import numpy as np
+from PIL import Image
+
+root = Path("/home/f50059431/code/LaRSE/datasets/BFF1WChallenge_for_LaRSE")
+for split_img, split_ann in [("training", "training"), ("validation", "validation")]:
+    Image.fromarray(np.full((16, 16, 3), 127, dtype=np.uint8)).save(root / "images" / split_img / "dummy.jpg")
+    Image.fromarray(np.full((16, 16), 11, dtype=np.uint8)).save(root / "annotations" / split_ann / "dummy.png")
+PY
+```
+
+### 12.2 torch-encoding 编译时报 Unsupported .version
 
 如果安装 `torch-encoding` 时出现类似：
 
@@ -587,7 +685,7 @@ ptxas --version
 
 如果你必须使用 CUDA 12.x 工具链，那更推荐不要强行编译 LaRSE 这套老 `torch-encoding`，而是单独用已跑通的老环境，或者用 conda 重新建一个专门的 LaRSE 环境。
 
-### 12.2 其他安装问题
+### 12.3 其他安装问题
 
 如果 `torch-encoding` 安装失败，优先检查：
 
