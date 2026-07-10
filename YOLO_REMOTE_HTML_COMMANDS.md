@@ -40,11 +40,13 @@ python -m building_seg.package_yolo_prediction_html \
 ```text
 index.html
 summary.json
-images/
-gt_overlay/
-gt_mask/
-prediction_overlay/
+image_*.jpg
+gt_overlay_*.jpg
+gt_mask_*.png
+prediction_overlay_*.jpg
 ```
+
+注意：新版脚本会把 `index.html` 和所有图片放在同一个文件夹里，不再使用子目录。这样下载后不容易出现 HTML 图片路径断掉的问题。
 
 HTML 每个样本展示：
 
@@ -80,6 +82,12 @@ zip -r yolo_val_html_report.zip yolo_val_html_report
 
 ```text
 yolo_val_html_report/index.html
+```
+
+如果你之前已经生成过旧版目录，建议先删掉旧目录后重新生成，避免旧的子目录和新版图片混在一起：
+
+```bash
+rm -rf /home/f50059431/code/footprint/testaoi/data/yolo26_seg_tiles_512_all/yolo_val_html_report
 ```
 
 ## 4. 只打包前 200 张
