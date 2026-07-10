@@ -24,6 +24,155 @@ LaRSE 项目默认位置：
 ../../LaRSE/checkpoints/RemoteCLIP-ViT-B-32.pt
 ```
 
+## 另一台机器的路径配置
+
+如果在另一台机器上运行，当前已知路径是：
+
+```text
+testaoi 项目：/home/f50059431/code/fofotprint/testaoi
+已准备好的 512 数据：/home/f50059431/code/fofotprint/testaoi/data/building_seg_tiles_512_all
+LaRSE 项目：/home/f50059431/code/LaRSE
+RemoteCLIP：/home/f50059431/code/LaRSE/checkpoints/RemoteCLIP-ViT-B-32.pt
+```
+
+先进入项目目录：
+
+```bash
+cd /home/f50059431/code/fofotprint/testaoi
+conda activate <你的_larse_conda环境名>
+```
+
+注意：LaRSE 推理需要两个权重文件，不只需要 RemoteCLIP：
+
+```bash
+ls -lh /home/f50059431/code/LaRSE/checkpoints/RemoteCLIP-ViT-B-32.pt
+ls -lh /home/f50059431/code/LaRSE/checkpoints/checkpoint_LARSE.ckpt
+```
+
+其中：
+
+```text
+RemoteCLIP-ViT-B-32.pt：视觉-语言 backbone 权重
+checkpoint_LARSE.ckpt：LaRSE 分割模型 checkpoint
+```
+
+如果 `checkpoint_LARSE.ckpt` 不在这个目录，需要先放进去，或在下面命令里把 `--checkpoint` 改成它的真实路径。
+
+一般不需要改 LaRSE 源码。当前 LaRSE 代码里的 `modules/models/lseg_vit.py` 会按 LaRSE 项目根目录自动找：
+
+```text
+<LaRSE>/checkpoints/RemoteCLIP-ViT-B-32.pt
+```
+
+所以只要 RemoteCLIP 文件已经在：
+
+```text
+/home/f50059431/code/LaRSE/checkpoints/RemoteCLIP-ViT-B-32.pt
+```
+
+就不用改 `lseg_vit.py`。如果你那份 LaRSE 代码仍然写死了旧路径，例如 `/home/user/code/int/my/LaRSE/...`，就在 LaRSE 目录检查：
+
+```bash
+grep -R "RemoteCLIP-ViT-B-32.pt\\|/home/user/code/int/my" -n /home/f50059431/code/LaRSE/modules /home/f50059431/code/LaRSE/*.sh
+```
+
+如果 grep 到硬编码旧路径，把它改成：
+
+```text
+/home/f50059431/code/LaRSE/checkpoints/RemoteCLIP-ViT-B-32.pt
+```
+
+更推荐的写法是在 `/home/f50059431/code/LaRSE/modules/models/lseg_vit.py` 顶部使用项目根目录拼路径：
+
+```python
+_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+_REMOTECLIP_VIT_B32 = os.path.join(_PROJECT_ROOT, "checkpoints", "RemoteCLIP-ViT-B-32.pt")
+```
+
+这样换机器时不用再改绝对路径。
+
+## 在真实 512 数据上测 LaRSE 效果
+
+如果你的数据目录已经是：
+
+```text
+/home/f50059431/code/fofotprint/testaoi/data/building_seg_tiles_512_all
+```
+
+并且里面有：
+
+```text
+images/*.png
+masks/*.png
+splits/train.txt
+splits/val.txt
+metadata/dataset.json
+```
+
+优先跑这个 GT 对齐可视化命令。它会对验证集 patch 推理，并把原图、GT、LaRSE 预测、误差图写成 HTML：
+
+```bash
+cd /home/f50059431/code/fofotprint/testaoi
+conda activate <你的_larse_conda环境名>
+
+python -m building_seg.predict_larse_debug_dataset \
+  --dataset /home/f50059431/code/fofotprint/testaoi/data/building_seg_tiles_512_all \
+  --out /home/f50059431/code/fofotprint/testaoi/data/larse_eval_512_all_val \
+  --class-json /home/f50059431/code/fofotprint/testaoi/data/building_seg_tiles_512_all/metadata/dataset.json \
+  --split val \
+  --limit 100 \
+  --larse-dir /home/f50059431/code/LaRSE \
+  --checkpoint /home/f50059431/code/LaRSE/checkpoints/checkpoint_LARSE.ckpt \
+  --device cuda
+```
+
+输出结果：
+
+```text
+/home/f50059431/code/fofotprint/testaoi/data/larse_eval_512_all_val/index.html
+/home/f50059431/code/fofotprint/testaoi/data/larse_eval_512_all_val/metrics.json
+```
+
+打开 HTML：
+
+```bash
+xdg-open /home/f50059431/code/fofotprint/testaoi/data/larse_eval_512_all_val/index.html
+```
+
+如果确认能跑，再把 `--limit 100` 改大，例如：
+
+```bash
+python -m building_seg.predict_larse_debug_dataset \
+  --dataset /home/f50059431/code/fofotprint/testaoi/data/building_seg_tiles_512_all \
+  --out /home/f50059431/code/fofotprint/testaoi/data/larse_eval_512_all_val_1000 \
+  --class-json /home/f50059431/code/fofotprint/testaoi/data/building_seg_tiles_512_all/metadata/dataset.json \
+  --split val \
+  --limit 1000 \
+  --larse-dir /home/f50059431/code/LaRSE \
+  --checkpoint /home/f50059431/code/LaRSE/checkpoints/checkpoint_LARSE.ckpt \
+  --device cuda
+```
+
+如果要对原始天地图 tiles 直接批量推理并导出 polygon GPKG，用这个命令：
+
+```bash
+python -m building_seg.predict_tiles_larse_to_polygon \
+  --tiles /home/f50059431/code/fofotprint/testaoi/data/tianditu/nansha_z18/tiles \
+  --class-json /home/f50059431/code/fofotprint/testaoi/data/building_seg_tiles_512_all/metadata/dataset.json \
+  --out-gpkg /home/f50059431/code/fofotprint/testaoi/data/larse_tiles_512_all/pred_larse_polygons_100.gpkg \
+  --out-mask-dir /home/f50059431/code/fofotprint/testaoi/data/larse_tiles_512_all/masks_100 \
+  --out-larse-mask-dir /home/f50059431/code/fofotprint/testaoi/data/larse_tiles_512_all/larse_raw_masks_100 \
+  --patch-tiles 2 \
+  --stride-tiles 2 \
+  --limit 100 \
+  --min-area-pixels 12 \
+  --larse-dir /home/f50059431/code/LaRSE \
+  --checkpoint /home/f50059431/code/LaRSE/checkpoints/checkpoint_LARSE.ckpt \
+  --device cuda
+```
+
+这个命令输出的是预测 polygon，不直接和 GT 做 HTML 对比。建议先用上面的 `predict_larse_debug_dataset` 看效果，再跑这个批量导出。
+
 ## 一、激活 conda 环境
 
 把下面的 `<env_name>` 换成你的 Python 3.8.18 conda 环境名：

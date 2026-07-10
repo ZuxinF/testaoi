@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -152,11 +153,12 @@ def main():
             print(f"{sample_id}: fg_acc={records[-1]['foreground_accuracy']:.4f}")
 
     (out_dir / "metrics.json").write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
-    write_html(out_dir, records, class_names)
+    write_html(out_dir, records, class_names, dataset)
     print(f"Wrote LaRSE debug visualization to {out_dir / 'index.html'}")
 
 
-def write_html(out_dir: Path, records: list[dict], class_names: list[str]):
+def write_html(out_dir: Path, records: list[dict], class_names: list[str], dataset: Path):
+    image_rel_dir = os.path.relpath(dataset / "images", out_dir)
     cards = []
     for rec in records:
         sid = rec["sample_id"]
@@ -166,7 +168,7 @@ def write_html(out_dir: Path, records: list[dict], class_names: list[str]):
         <h3>{sid}</h3>
         <p>前景像素准确率：{rec['foreground_accuracy'] * 100:.2f}% ｜ GT前景像素：{rec['gt_foreground_pixels']} ｜ 预测前景像素：{rec['pred_foreground_pixels']}</p>
         <div class="grid">
-          <figure><img src="../building_seg_tiles_512_debug/images/{sid}.png"><figcaption>原图</figcaption></figure>
+          <figure><img src="{image_rel_dir}/{sid}.png"><figcaption>原图</figcaption></figure>
           <figure><img src="gt_overlay/{sid}.jpg"><figcaption>GT 叠加</figcaption></figure>
           <figure><img src="pred_overlay/{sid}.jpg"><figcaption>LaRSE 预测叠加</figcaption></figure>
           <figure><img src="error/{sid}.png"><figcaption>绿色正确 / 红色错分 / 橙色误检</figcaption></figure>
