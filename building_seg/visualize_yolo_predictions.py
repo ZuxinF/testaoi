@@ -14,6 +14,7 @@ def parse_args():
     parser.add_argument("--dataset", default="data/yolo26_seg_tiles_512_debug")
     parser.add_argument("--split", default="val", choices=["train", "val"])
     parser.add_argument("--out", default=None)
+    parser.add_argument("--out-pred-mask-dir", default=None)
     parser.add_argument("--imgsz", type=int, default=512)
     parser.add_argument("--conf", type=float, default=0.05)
     parser.add_argument("--device", default=0)
@@ -83,13 +84,48 @@ def draw_predictions(overlay: Image.Image, result, fill: tuple[int, int, int], o
             draw.point((int(x), int(y)), fill=(*outline, 255))
 
 
+def colorize_prediction_mask(result, size: tuple[int, int]) -> Image.Image:
+    rgb = np.full((size[1], size[0], 3), 245, dtype=np.uint8)
+    if result.masks is None:
+        return Image.fromarray(rgb)
+
+    masks = result.masks.data.detach().cpu().numpy()
+    if result.boxes is not None and result.boxes.cls is not None:
+        class_ids = result.boxes.cls.detach().cpu().numpy().astype(int).tolist()
+    else:
+        class_ids = [0] * len(masks)
+
+    palette = np.array(
+        [
+            [31, 119, 180],
+            [255, 127, 14],
+            [44, 160, 44],
+            [214, 39, 40],
+            [148, 103, 189],
+            [140, 86, 75],
+            [227, 119, 194],
+            [127, 127, 127],
+            [188, 189, 34],
+            [23, 190, 207],
+            [90, 90, 90],
+        ],
+        dtype=np.uint8,
+    )
+    for mask, class_id in zip(masks, class_ids):
+        color = palette[class_id % len(palette)]
+        rgb[mask > 0.5] = color
+    return Image.fromarray(rgb)
+
+
 def main():
     args = parse_args()
     dataset = Path(args.dataset)
     image_dir = dataset / "images" / args.split
     label_dir = dataset / "labels" / args.split
     out_dir = Path(args.out) if args.out else dataset / "prediction_overlays" / args.split
+    pred_mask_dir = Path(args.out_pred_mask_dir) if args.out_pred_mask_dir else dataset / "prediction_masks" / args.split
     out_dir.mkdir(parents=True, exist_ok=True)
+    pred_mask_dir.mkdir(parents=True, exist_ok=True)
 
     gt_color = parse_color(args.gt_outline)
     pred_fill = parse_color(args.pred_fill)
@@ -116,8 +152,10 @@ def main():
         draw_gt(draw, gt_segments, gt_color)
         out = Image.alpha_composite(image, overlay).convert("RGB")
         out.save(out_dir / image_path.name, quality=95)
+        colorize_prediction_mask(result, image.size).save(pred_mask_dir / f"{image_path.stem}.png")
 
     print(f"Wrote {len(image_paths)} GT/prediction overlays to {out_dir}")
+    print(f"Wrote {len(image_paths)} pure prediction masks to {pred_mask_dir}")
     print("GT: green outline; prediction: red translucent mask/outline; no text or confidence is drawn.")
 
 

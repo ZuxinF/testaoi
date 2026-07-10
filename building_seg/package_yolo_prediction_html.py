@@ -29,6 +29,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Package YOLO prediction overlays, source images, and GT labels into an HTML report.")
     parser.add_argument("--dataset", required=True, help="YOLO segmentation dataset directory, e.g. data/yolo26_seg_tiles_512_all")
     parser.add_argument("--overlay-dir", required=True, help="Directory containing YOLO prediction overlay images")
+    parser.add_argument("--pred-mask-dir", default=None, help="Directory containing pure YOLO prediction mask previews")
     parser.add_argument("--out", required=True, help="Output report directory")
     parser.add_argument("--split", default="val", choices=["train", "val"])
     parser.add_argument("--limit", type=int, default=None)
@@ -124,6 +125,14 @@ def collect_overlay_paths(overlay_dir: Path, limit: int | None) -> list[Path]:
     return paths
 
 
+def find_image_by_stem(folder: Path, stem: str) -> Path | None:
+    for suffix in [".png", ".jpg", ".jpeg"]:
+        path = folder / f"{stem}{suffix}"
+        if path.exists():
+            return path
+    return None
+
+
 def write_html(out_dir: Path, title: str, records: list[dict], class_names: list[str], summary: dict):
     cards = []
     for rec in records:
@@ -139,8 +148,8 @@ def write_html(out_dir: Path, title: str, records: list[dict], class_names: list
         <p>GT polygon：{rec['gt_polygon_count']} ｜ GT 类别：{class_text}</p>
         <div class="grid">
           <figure><img src="{html.escape(rec['image_file'])}"><figcaption>原图</figcaption></figure>
-          <figure><img src="{html.escape(rec['gt_overlay_file'])}"><figcaption>GT 叠加</figcaption></figure>
           <figure><img src="{html.escape(rec['overlay_file'])}"><figcaption>YOLO 预测 + GT</figcaption></figure>
+          <figure><img src="{html.escape(rec['pred_mask_file'])}"><figcaption>YOLO 纯预测 mask</figcaption></figure>
           <figure><img src="{html.escape(rec['gt_mask_file'])}"><figcaption>GT mask 预览</figcaption></figure>
         </div>
       </article>
@@ -182,12 +191,13 @@ def write_html(out_dir: Path, title: str, records: list[dict], class_names: list
   <main>
     <header>
       <h1>{html.escape(title)}</h1>
-      <p>绿色/彩色 GT 轮廓来自 YOLO label；YOLO 预测叠加图来自已有 prediction_overlays 目录，不重新推理。所有图片与本 HTML 位于同一文件夹，便于打包下载。</p>
+      <p>YOLO 预测叠加图来自 prediction_overlays；纯预测 mask 来自 prediction_masks；GT mask 由 YOLO label 生成。所有图片与本 HTML 位于同一文件夹，便于打包下载。</p>
       <div class="summary">
         <span>样本数：{summary['sample_count']}</span>
         <span>GT polygon：{summary['gt_polygon_count']}</span>
         <span>缺失原图：{summary['missing_images']}</span>
         <span>缺失 label：{summary['missing_labels']}</span>
+        <span>缺失预测 mask：{summary['missing_pred_masks']}</span>
       </div>
       <div class="legend">{''.join(legend_items)}</div>
     </header>
@@ -203,6 +213,7 @@ def main():
     args = parse_args()
     dataset = Path(args.dataset)
     overlay_dir = Path(args.overlay_dir)
+    pred_mask_dir = Path(args.pred_mask_dir) if args.pred_mask_dir else dataset / "prediction_masks" / args.split
     out_dir = Path(args.out)
     image_dir = dataset / "images" / args.split
     label_dir = dataset / "labels" / args.split
@@ -217,6 +228,7 @@ def main():
     records = []
     missing_images = 0
     missing_labels = 0
+    missing_pred_masks = 0
     gt_polygon_total = 0
 
     for overlay_path in overlay_paths:
@@ -242,13 +254,18 @@ def main():
         segments = read_yolo_segments(label_path, *image.size)
         gt_polygon_total += len(segments)
 
-        gt_overlay_file = f"gt_overlay_{sample_id}.jpg"
         gt_mask_file = f"gt_mask_{sample_id}.png"
         overlay_file = f"prediction_overlay_{sample_id}{overlay_path.suffix.lower()}"
+        pred_mask_file = f"prediction_mask_{sample_id}.png"
 
-        draw_gt_overlay(image, segments, args.gt_alpha).save(out_dir / gt_overlay_file, quality=95)
         draw_gt_mask(image.size, segments).save(out_dir / gt_mask_file)
         safe_copy(overlay_path, out_dir / overlay_file)
+        pred_mask_path = find_image_by_stem(pred_mask_dir, sample_id)
+        if pred_mask_path:
+            safe_copy(pred_mask_path, out_dir / pred_mask_file)
+        else:
+            missing_pred_masks += 1
+            Image.new("RGB", image.size, (245, 247, 248)).save(out_dir / pred_mask_file)
 
         class_counter: dict[int, int] = {}
         for class_id, _ in segments:
@@ -257,9 +274,9 @@ def main():
             {
                 "sample_id": sample_id,
                 "image_file": image_file,
-                "gt_overlay_file": gt_overlay_file,
                 "gt_mask_file": gt_mask_file,
                 "overlay_file": overlay_file,
+                "pred_mask_file": pred_mask_file,
                 "gt_polygon_count": len(segments),
                 "gt_classes": [
                     {"class_id": class_id, "count": count}
@@ -273,8 +290,10 @@ def main():
         "gt_polygon_count": gt_polygon_total,
         "missing_images": missing_images,
         "missing_labels": missing_labels,
+        "missing_pred_masks": missing_pred_masks,
         "dataset": str(dataset),
         "overlay_dir": str(overlay_dir),
+        "pred_mask_dir": str(pred_mask_dir),
         "split": args.split,
         "class_names": class_names,
     }

@@ -558,6 +558,7 @@ python -m building_seg.visualize_yolo_predictions \
   --dataset data/yolo26_seg_tiles_512_all \
   --split val \
   --out data/yolo26_seg_tiles_512_all/prediction_overlays/val \
+  --out-pred-mask-dir data/yolo26_seg_tiles_512_all/prediction_masks/val \
   --imgsz 768 \
   --conf 0.05 \
   --device 0 \
@@ -571,9 +572,9 @@ python -m building_seg.visualize_yolo_predictions \
 红色半透明区域/轮廓：YOLO 预测 mask
 ```
 
-图上不会绘制类别名、文字标签或置信度。
+图上不会绘制类别名、文字标签或置信度。`prediction_masks/val` 会保存纯预测 mask，方便后续生成 HTML 对比报告。
 
-如果已经有 `prediction_overlays/val`，可以进一步把原图、GT 叠加、GT mask 和 YOLO 预测叠加图打包成一个可下载 HTML 文件夹。远端复制命令见：
+如果已经有 `prediction_overlays/val` 和 `prediction_masks/val`，可以进一步把原图、YOLO 预测叠加图、YOLO 纯预测 mask、GT mask 打包成一个可下载 HTML 文件夹。远端复制命令见：
 
 ```text
 YOLO_REMOTE_HTML_COMMANDS.md

@@ -8,6 +8,7 @@
 项目目录：/home/f50059431/code/footprint/testaoi
 YOLO 数据集：/home/f50059431/code/footprint/testaoi/data/yolo26_seg_tiles_512_all
 已有预测叠加图：/home/f50059431/code/footprint/testaoi/data/yolo26_seg_tiles_512_all/prediction_overlays/val
+纯预测 mask：/home/f50059431/code/footprint/testaoi/data/yolo26_seg_tiles_512_all/prediction_masks/val
 ```
 
 ## 1. 进入环境
@@ -18,12 +19,39 @@ cd /home/f50059431/code/footprint/testaoi
 
 如果你在 YOLO 的 venv/conda 环境里，就先激活它；这个 HTML 打包脚本只需要 `Pillow` 和 `numpy`，不需要重新加载 YOLO 模型。
 
-## 2. 生成 HTML 对比报告
+## 2. 先补生成纯预测 mask
+
+如果你之前的 `prediction_overlays/val` 是旧脚本生成的，里面只有叠加图，没有纯预测 mask。先用新版脚本重新跑一次预测可视化，输出两类结果：
+
+```text
+prediction_overlays/val：原图 + YOLO 预测 + GT 轮廓
+prediction_masks/val：YOLO 纯预测 mask
+```
+
+命令：
+
+```bash
+python -m building_seg.visualize_yolo_predictions \
+  --model /path/to/your/yolo/weights/best.pt \
+  --dataset /home/f50059431/code/footprint/testaoi/data/yolo26_seg_tiles_512_all \
+  --split val \
+  --out /home/f50059431/code/footprint/testaoi/data/yolo26_seg_tiles_512_all/prediction_overlays/val \
+  --out-pred-mask-dir /home/f50059431/code/footprint/testaoi/data/yolo26_seg_tiles_512_all/prediction_masks/val \
+  --imgsz 512 \
+  --conf 0.05 \
+  --device 0 \
+  --limit 999999
+```
+
+把 `/path/to/your/yolo/weights/best.pt` 换成你的真实权重路径。
+
+## 3. 生成 HTML 对比报告
 
 ```bash
 python -m building_seg.package_yolo_prediction_html \
   --dataset /home/f50059431/code/footprint/testaoi/data/yolo26_seg_tiles_512_all \
   --overlay-dir /home/f50059431/code/footprint/testaoi/data/yolo26_seg_tiles_512_all/prediction_overlays/val \
+  --pred-mask-dir /home/f50059431/code/footprint/testaoi/data/yolo26_seg_tiles_512_all/prediction_masks/val \
   --out /home/f50059431/code/footprint/testaoi/data/yolo26_seg_tiles_512_all/yolo_val_html_report \
   --split val \
   --title "YOLO26 Segmentation 验证集 GT 对比"
@@ -41,9 +69,9 @@ python -m building_seg.package_yolo_prediction_html \
 index.html
 summary.json
 image_*.jpg
-gt_overlay_*.jpg
 gt_mask_*.png
 prediction_overlay_*.jpg
+prediction_mask_*.png
 ```
 
 注意：新版脚本会把 `index.html` 和所有图片放在同一个文件夹里，不再使用子目录。这样下载后不容易出现 HTML 图片路径断掉的问题。
@@ -52,12 +80,12 @@ HTML 每个样本展示：
 
 ```text
 原图
-GT 叠加
 YOLO 预测 + GT
+YOLO 纯预测 mask
 GT mask 预览
 ```
 
-## 3. 打开 HTML
+## 4. 打开 HTML
 
 如果机器有桌面：
 
@@ -90,7 +118,7 @@ yolo_val_html_report/index.html
 rm -rf /home/f50059431/code/footprint/testaoi/data/yolo26_seg_tiles_512_all/yolo_val_html_report
 ```
 
-## 4. 只打包前 200 张
+## 5. 只打包前 200 张
 
 如果图很多，先看一部分：
 
@@ -98,6 +126,7 @@ rm -rf /home/f50059431/code/footprint/testaoi/data/yolo26_seg_tiles_512_all/yolo
 python -m building_seg.package_yolo_prediction_html \
   --dataset /home/f50059431/code/footprint/testaoi/data/yolo26_seg_tiles_512_all \
   --overlay-dir /home/f50059431/code/footprint/testaoi/data/yolo26_seg_tiles_512_all/prediction_overlays/val \
+  --pred-mask-dir /home/f50059431/code/footprint/testaoi/data/yolo26_seg_tiles_512_all/prediction_masks/val \
   --out /home/f50059431/code/footprint/testaoi/data/yolo26_seg_tiles_512_all/yolo_val_html_report_200 \
   --split val \
   --limit 200 \
@@ -111,9 +140,9 @@ cd /home/f50059431/code/footprint/testaoi/data/yolo26_seg_tiles_512_all
 zip -r yolo_val_html_report_200.zip yolo_val_html_report_200
 ```
 
-## 5. 如果 prediction_overlays 不存在
+## 6. 如果 prediction_overlays 不存在
 
-先生成 YOLO 预测叠加图：
+先生成 YOLO 预测叠加图和纯预测 mask：
 
 ```bash
 python -m building_seg.visualize_yolo_predictions \
@@ -121,6 +150,7 @@ python -m building_seg.visualize_yolo_predictions \
   --dataset /home/f50059431/code/footprint/testaoi/data/yolo26_seg_tiles_512_all \
   --split val \
   --out /home/f50059431/code/footprint/testaoi/data/yolo26_seg_tiles_512_all/prediction_overlays/val \
+  --out-pred-mask-dir /home/f50059431/code/footprint/testaoi/data/yolo26_seg_tiles_512_all/prediction_masks/val \
   --imgsz 512 \
   --conf 0.05 \
   --device 0 \
