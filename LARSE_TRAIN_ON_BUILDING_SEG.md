@@ -209,7 +209,152 @@ checkpoint_load_report.json
 logs/
 ```
 
-## 八、训练后怎么测
+## 八、5 epoch 快速验证这条线是否值得继续
+
+如果全量训练一个 epoch 需要约 30 分钟，建议先跑一个小规模快速验证，不要一开始就烧完整 30 epoch。
+
+推荐配置：
+
+```text
+train samples: 5000
+val samples: 1000
+epochs: 5
+batch_size: 16
+num_workers: 16
+freeze: 只冻结 RemoteCLIP，不冻结 LaRSE 图像 backbone
+```
+
+训练命令：
+
+```bash
+cd /home/f50059431/code/footprint/testaoi
+conda activate zx_larse
+
+python -m building_seg.train_larse_on_prepared_dataset \
+  --dataset-dir /home/f50059431/code/footprint/testaoi/data/building_seg_tiles_512_all \
+  --larse-dir /home/f50059431/code/LaRSE \
+  --init-checkpoint /home/f50059431/code/LaRSE/checkpoints/checkpoint_LARSE.ckpt \
+  --out-dir /home/f50059431/code/footprint/testaoi/data/larse_train_building_seg_512_fastcheck \
+  --backbone clip_vitb32_384 \
+  --batch-size 16 \
+  --epochs 5 \
+  --lr 0.0001 \
+  --num-workers 16 \
+  --max-train-samples 5000 \
+  --max-val-samples 1000 \
+  --freeze-clip \
+  --device cuda
+```
+
+注意这里不要加 `--freeze-backbone`。这一步要让 LaRSE 的图像侧适应当前天地图影像；只冻结 RemoteCLIP，保留文本语义先验。
+
+### 8.1 生成 fine-tuned LaRSE 可视化
+
+训练完后，用 `best.ckpt` 在同一个 val split 上生成 100 张 HTML：
+
+```bash
+python -m building_seg.predict_larse_debug_dataset \
+  --dataset /home/f50059431/code/footprint/testaoi/data/building_seg_tiles_512_all \
+  --out /home/f50059431/code/footprint/testaoi/data/larse_finetuned_fastcheck_eval_val \
+  --class-json /home/f50059431/code/footprint/testaoi/data/building_seg_tiles_512_all/metadata/dataset.json \
+  --split val \
+  --limit 100 \
+  --larse-dir /home/f50059431/code/LaRSE \
+  --checkpoint /home/f50059431/code/footprint/testaoi/data/larse_train_building_seg_512_fastcheck/best.ckpt \
+  --label-space auto \
+  --device cuda
+```
+
+打开：
+
+```bash
+xdg-open /home/f50059431/code/footprint/testaoi/data/larse_finetuned_fastcheck_eval_val/index.html
+```
+
+如果没有桌面，打包下载：
+
+```bash
+cd /home/f50059431/code/footprint/testaoi/data
+zip -r larse_finetuned_fastcheck_eval_val.zip larse_finetuned_fastcheck_eval_val
+```
+
+### 8.2 生成诊断 JSON
+
+```bash
+python -m building_seg.analyze_larse_eval \
+  --eval-dir /home/f50059431/code/footprint/testaoi/data/larse_finetuned_fastcheck_eval_val \
+  --dataset /home/f50059431/code/footprint/testaoi/data/building_seg_tiles_512_all \
+  --out-json /home/f50059431/code/footprint/testaoi/data/larse_finetuned_fastcheck_eval_val/diagnosis.json
+```
+
+重点看：
+
+```text
+fg_acc > 0 samples
+pred_fg > 0 samples
+avg foreground_accuracy
+Remapped prediction classes
+GT classes
+Diagnosis
+```
+
+### 8.3 和未 fine-tune 的 LaRSE 基线对比
+
+如果之前已经有未训练的 LaRSE 结果：
+
+```text
+/home/f50059431/code/footprint/testaoi/data/larse_eval_512_all_val_v2
+```
+
+用下面命令打印两个结果的核心指标：
+
+```bash
+python - <<'PY'
+import json
+from pathlib import Path
+
+items = {
+    "baseline": Path("/home/f50059431/code/footprint/testaoi/data/larse_eval_512_all_val_v2/metrics.json"),
+    "finetuned_fastcheck": Path("/home/f50059431/code/footprint/testaoi/data/larse_finetuned_fastcheck_eval_val/metrics.json"),
+}
+
+for name, path in items.items():
+    rows = json.loads(path.read_text())
+    n = len(rows)
+    fg_pos = sum(r["foreground_accuracy"] > 0 for r in rows)
+    pred_pos = sum(r["pred_foreground_pixels"] > 0 for r in rows)
+    avg_fg = sum(r["foreground_accuracy"] for r in rows) / max(n, 1)
+    avg_pred = sum(r["pred_foreground_pixels"] for r in rows) / max(n, 1)
+    avg_gt = sum(r["gt_foreground_pixels"] for r in rows) / max(n, 1)
+    print(name)
+    print("  samples:", n)
+    print("  fg_acc > 0:", fg_pos)
+    print("  pred_fg > 0:", pred_pos)
+    print("  avg foreground_accuracy:", round(avg_fg, 6))
+    print("  avg pred_foreground_pixels:", round(avg_pred, 2))
+    print("  avg gt_foreground_pixels:", round(avg_gt, 2))
+PY
+```
+
+判断是否值得继续：
+
+```text
+值得继续：
+- avg foreground_accuracy 明显高于 baseline
+- fg_acc > 0 的样本数明显增加
+- HTML 里红色预测区域更贴近 GT
+- pred_fg 不再极端偏少或极端泛滥
+
+不太值得继续：
+- avg foreground_accuracy 没提升
+- HTML 里预测仍然大面积错位
+- pred_fg 激增但多数是背景误检
+- 类别分布明显塌到一两个类别
+```
+
+如果 5 epoch fastcheck 有提升，再跑全量 30 epoch 或 100 epoch；如果没有提升，优先继续优化 YOLO/Mask2Former，不要在 LaRSE 上消耗太多时间。
+
+## 九、训练后怎么测
 
 训练输出 checkpoint 后，用现有 debug 可视化脚本测：
 
@@ -235,9 +380,9 @@ python -m building_seg.analyze_larse_eval \
   --out-json /home/f50059431/code/footprint/testaoi/data/larse_finetuned_eval_val/diagnosis.json
 ```
 
-## 九、常见报错
+## 十、常见报错
 
-### 9.1 `module 'distutils' has no attribute 'version'`
+### 10.1 `module 'distutils' has no attribute 'version'`
 
 如果训练时报：
 
@@ -276,7 +421,7 @@ PY
 
 能输出 `1.0` 就可以重新跑训练命令。
 
-## 十、现实预期
+## 十一、现实预期
 
 LaRSE 适合做视觉-语言语义分割基线，但对当前任务不一定比 YOLO-seg 更稳。
 
@@ -296,7 +441,7 @@ SegFormer/Mask2Former：后续更强语义分割备选
 
 如果 LaRSE fine-tune 后只提升类别但轮廓不如 YOLO，可以考虑把 LaRSE 当类别先验或弱标签参考，而不是最终轮廓模型。
 
-## 十一、给 Minimax2.7 的提示词
+## 十二、给 Minimax2.7 的提示词
 
 如果你在远端机器上使用 Minimax2.7 辅助改代码，可以直接复制下面这段提示词。
 
