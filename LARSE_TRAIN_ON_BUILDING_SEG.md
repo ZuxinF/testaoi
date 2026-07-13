@@ -16,7 +16,7 @@ splits/val.txt
 metadata/dataset.json
 ```
 
-LaRSE 原仓库不能直接吃这个目录训练，需要做 3 件事：
+LaRSE 原仓库不能直接吃这个目录训练。本项目已在 `footprint/testaoi` 侧补了适配脚本，核心做 3 件事：
 
 ```text
 1. 注册一个 LaRSE/encoding 可识别的数据集
@@ -100,15 +100,15 @@ RemoteCLIP: /home/f50059431/code/LaRSE/checkpoints/RemoteCLIP-ViT-B-32.pt
 
 注意：LaRSE 比 YOLO 更吃显存，先别一上来大 batch。
 
-## 五、训练前要补的代码
+## 五、已补好的代码
 
-需要新增一个训练脚本，例如：
+训练入口已经新增：
 
 ```text
 building_seg/train_larse_on_prepared_dataset.py
 ```
 
-这个脚本应做：
+这个脚本会做：
 
 ```text
 1. 读取 metadata/dataset.json 得到 class_names
@@ -120,11 +120,52 @@ building_seg/train_larse_on_prepared_dataset.py
 7. pl.Trainer.fit(model)
 ```
 
+同时，验证脚本也已经支持 fine-tuned checkpoint：
+
+```text
+building_seg/predict_larse_debug_dataset.py
+```
+
+它新增了 `--label-space auto|larse|target`：
+
+```text
+auto：如果 checkpoint 同目录有 class_names.json 且与当前数据一致，就按 target 类别解释输出
+larse：按原始 BUFF 12 类输出，再 remap 到当前 Function
+target：认为模型已经直接输出当前 Function 类别
+```
+
 关键点：不能继续用 `buff4k_objectInfo.txt` 的 12 类文本，否则训练目标和输出文本类别不一致。
 
-## 六、预期训练命令
+## 六、Smoke Test 命令
 
-脚本补好后，远端命令应类似：
+先只用极少数据跑 1 个 epoch，确认 forward/backward/checkpoint 都通：
+
+```bash
+cd /home/f50059431/code/footprint/testaoi
+conda activate zx_larse
+
+python -m building_seg.train_larse_on_prepared_dataset \
+  --dataset-dir /home/f50059431/code/footprint/testaoi/data/building_seg_tiles_512_all \
+  --larse-dir /home/f50059431/code/LaRSE \
+  --init-checkpoint /home/f50059431/code/LaRSE/checkpoints/checkpoint_LARSE.ckpt \
+  --out-dir /home/f50059431/code/footprint/testaoi/data/larse_train_building_seg_512_smoke \
+  --backbone clip_vitb32_384 \
+  --batch-size 1 \
+  --epochs 1 \
+  --lr 0.0001 \
+  --num-workers 2 \
+  --max-train-samples 16 \
+  --max-val-samples 8 \
+  --freeze-clip \
+  --freeze-backbone \
+  --device cuda
+```
+
+如果这个都爆显存，把 `--device cuda` 改成 CPU 只验证链路，或者继续保持 `--freeze-clip --freeze-backbone`，不要先训全量。
+
+## 七、正式训练命令
+
+Smoke test 成功后，再跑较完整训练：
 
 ```bash
 cd /home/f50059431/code/footprint/testaoi
@@ -139,10 +180,18 @@ python -m building_seg.train_larse_on_prepared_dataset \
   --batch-size 2 \
   --epochs 30 \
   --lr 0.0001 \
+  --num-workers 4 \
+  --freeze-clip \
   --device cuda
 ```
 
-先只跑 30 epoch 冒烟，看：
+建议先冻结 RemoteCLIP 文本/图像模型，只训练 LaRSE 的视觉 backbone/scratch/head。如果还爆显存或不稳定，可以再加：
+
+```bash
+--freeze-backbone --batch-size 1 --num-workers 2
+```
+
+训练时看：
 
 ```text
 train_loss 是否下降
@@ -150,7 +199,17 @@ val_iou 是否不是 NaN
 checkpoint 是否能保存
 ```
 
-## 七、训练后怎么测
+输出目录至少会包含：
+
+```text
+best.ckpt
+last.ckpt
+class_names.json
+checkpoint_load_report.json
+logs/
+```
+
+## 八、训练后怎么测
 
 训练输出 checkpoint 后，用现有 debug 可视化脚本测：
 
@@ -163,6 +222,7 @@ python -m building_seg.predict_larse_debug_dataset \
   --limit 100 \
   --larse-dir /home/f50059431/code/LaRSE \
   --checkpoint /home/f50059431/code/footprint/testaoi/data/larse_train_building_seg_512/best.ckpt \
+  --label-space auto \
   --device cuda
 ```
 
@@ -175,7 +235,7 @@ python -m building_seg.analyze_larse_eval \
   --out-json /home/f50059431/code/footprint/testaoi/data/larse_finetuned_eval_val/diagnosis.json
 ```
 
-## 八、现实预期
+## 九、现实预期
 
 LaRSE 适合做视觉-语言语义分割基线，但对当前任务不一定比 YOLO-seg 更稳。
 
@@ -195,7 +255,7 @@ SegFormer/Mask2Former：后续更强语义分割备选
 
 如果 LaRSE fine-tune 后只提升类别但轮廓不如 YOLO，可以考虑把 LaRSE 当类别先验或弱标签参考，而不是最终轮廓模型。
 
-## 九、给 Minimax2.7 的提示词
+## 十、给 Minimax2.7 的提示词
 
 如果你在远端机器上使用 Minimax2.7 辅助改代码，可以直接复制下面这段提示词。
 

@@ -609,6 +609,18 @@ yolo segment predict \
 
 LaRSE 可以作为第一版正式模型基线来试。它的输入也是遥感影像，输出是建筑功能语义分割 mask；这里新增了一个适配脚本，把 LaRSE 的 BUFF 12 类结果映射到当前 `Function` 字段，并继续输出 polygon GPKG。
 
+如果要用 `data/building_seg_tiles_512_all` 进一步 fine-tune LaRSE，看专门文档：
+
+```text
+LARSE_TRAIN_ON_BUILDING_SEG.md
+```
+
+训练入口已经补在：
+
+```text
+building_seg/train_larse_on_prepared_dataset.py
+```
+
 LaRSE 原始类别到当前类别的默认映射如下：
 
 ```text

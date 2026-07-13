@@ -190,6 +190,14 @@ def load_larse_module(args):
 
         from modules.lseg_module import LSegModule
 
+        target_class_names = getattr(args, "target_class_names", None)
+        if target_class_names:
+            def get_labels(self, dataset):
+                print("Use target labels for LaRSE module:", target_class_names)
+                return target_class_names
+
+            LSegModule.get_labels = get_labels
+
         torch.load = make_remoteclip_redirect_torch_load(original_torch_load, remoteclip_path)
         module = LSegModule.load_from_checkpoint(
             checkpoint_path=args.checkpoint,

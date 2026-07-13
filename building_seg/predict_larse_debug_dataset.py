@@ -50,6 +50,12 @@ def parse_args():
     parser.add_argument("--checkpoint", default=None)
     parser.add_argument("--backbone", default="clip_vitb32_384")
     parser.add_argument("--dataset-name", default="buff1w")
+    parser.add_argument(
+        "--label-space",
+        default="auto",
+        choices=["auto", "larse", "target"],
+        help="larse: BUFF 12-class output remapped to target; target: checkpoint already outputs target classes.",
+    )
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     return parser.parse_args()
 
@@ -85,8 +91,16 @@ def alpha_overlay(image: Image.Image, mask: np.ndarray, color: tuple[int, int, i
 def load_sample_ids(dataset: Path, split: str | None) -> list[str]:
     if split:
         split_path = dataset / "splits" / f"{split}.txt"
-        return [line.strip() for line in split_path.read_text().splitlines() if line.strip()]
-    return sorted(path.stem for path in (dataset / "images").glob("*.png"))
+        return [Path(line.strip()).stem for line in split_path.read_text().splitlines() if line.strip()]
+    return sorted(path.stem for path in (dataset / "images").glob("*") if path.suffix.lower() in {".png", ".jpg", ".jpeg"})
+
+
+def find_image_path(dataset: Path, sample_id: str) -> Path:
+    for suffix in [".png", ".jpg", ".jpeg"]:
+        path = dataset / "images" / f"{sample_id}{suffix}"
+        if path.exists():
+            return path
+    return dataset / "images" / f"{sample_id}.png"
 
 
 def foreground_accuracy(gt: np.ndarray, pred: np.ndarray) -> float:
@@ -96,12 +110,31 @@ def foreground_accuracy(gt: np.ndarray, pred: np.ndarray) -> float:
     return float(np.count_nonzero((gt == pred) & fg) / np.count_nonzero(fg))
 
 
+def resolve_label_space(args, class_names: list[str]) -> str:
+    if args.label_space != "auto":
+        return args.label_space
+    if not args.checkpoint:
+        return "larse"
+    checkpoint_path = Path(args.checkpoint)
+    sidecar = checkpoint_path.parent / "class_names.json"
+    if sidecar.exists():
+        try:
+            checkpoint_class_names = json.loads(sidecar.read_text(encoding="utf-8"))
+            if checkpoint_class_names == class_names:
+                return "target"
+        except Exception:
+            pass
+    return "larse"
+
+
 def main():
     args = parse_args()
     dataset = Path(args.dataset)
     class_json = Path(args.class_json) if args.class_json else dataset / "metadata" / "dataset.json"
     class_names = load_target_class_names(str(class_json))
-    remap = make_remap(class_names)
+    label_space = resolve_label_space(args, class_names)
+    remap = make_remap(class_names) if label_space == "larse" else None
+    print(f"LaRSE prediction label_space: {label_space}")
 
     larse_args = SimpleNamespace(
         larse_dir=args.larse_dir,
@@ -110,6 +143,7 @@ def main():
         device=args.device,
         dataset=args.dataset_name,
         backbone=args.backbone,
+        target_class_names=class_names if label_space == "target" else None,
     )
     resolve_larse_paths(larse_args)
     module, transform = load_larse_module(larse_args)
@@ -122,7 +156,7 @@ def main():
     records = []
     with torch.no_grad():
         for sample_id in sample_ids:
-            image_path = dataset / "images" / f"{sample_id}.png"
+            image_path = find_image_path(dataset, sample_id)
             gt_path = dataset / "masks" / f"{sample_id}.png"
             if not image_path.exists() or not gt_path.exists():
                 continue
@@ -132,7 +166,11 @@ def main():
             if logits.shape[-2:] != (image.size[1], image.size[0]):
                 logits = F.interpolate(logits, size=(image.size[1], image.size[0]), mode="bilinear", align_corners=False)
             larse_raw = torch.argmax(logits, dim=1).squeeze(0).cpu().numpy().astype(np.uint8)
-            pred = remap[larse_raw]
+            if label_space == "target":
+                pred = larse_raw
+                pred[larse_raw >= len(class_names)] = 0
+            else:
+                pred = remap[larse_raw]
 
             Image.fromarray(pred).save(out_dir / "pred_masks" / f"{sample_id}.png")
             Image.fromarray(larse_raw + 1).save(out_dir / "larse_raw_masks" / f"{sample_id}.png")
