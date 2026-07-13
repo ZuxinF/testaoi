@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import distutils.version  # noqa: F401 - needed by older torch/lightning imports.
 import json
 import os
 import random

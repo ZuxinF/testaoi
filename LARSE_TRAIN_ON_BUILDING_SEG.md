@@ -235,7 +235,48 @@ python -m building_seg.analyze_larse_eval \
   --out-json /home/f50059431/code/footprint/testaoi/data/larse_finetuned_eval_val/diagnosis.json
 ```
 
-## 九、现实预期
+## 九、常见报错
+
+### 9.1 `module 'distutils' has no attribute 'version'`
+
+如果训练时报：
+
+```text
+AttributeError: module 'distutils' has no attribute 'version'
+```
+
+这是老版本 PyTorch / PyTorch Lightning 和新版 Python packaging 组合里常见的问题。新版训练脚本已经显式加了：
+
+```python
+import distutils.version
+```
+
+所以先同步最新代码后重跑：
+
+```bash
+cd /home/f50059431/code/footprint/testaoi
+git pull
+conda activate zx_larse
+```
+
+如果仍然报错，在 `zx_larse` 环境里把 `setuptools` 固定到老版本：
+
+```bash
+pip install "setuptools==59.5.0"
+```
+
+然后确认：
+
+```bash
+python - <<'PY'
+import distutils.version
+print(distutils.version.LooseVersion("1.0"))
+PY
+```
+
+能输出 `1.0` 就可以重新跑训练命令。
+
+## 十、现实预期
 
 LaRSE 适合做视觉-语言语义分割基线，但对当前任务不一定比 YOLO-seg 更稳。
 
@@ -255,7 +296,7 @@ SegFormer/Mask2Former：后续更强语义分割备选
 
 如果 LaRSE fine-tune 后只提升类别但轮廓不如 YOLO，可以考虑把 LaRSE 当类别先验或弱标签参考，而不是最终轮廓模型。
 
-## 十、给 Minimax2.7 的提示词
+## 十一、给 Minimax2.7 的提示词
 
 如果你在远端机器上使用 Minimax2.7 辅助改代码，可以直接复制下面这段提示词。
 
