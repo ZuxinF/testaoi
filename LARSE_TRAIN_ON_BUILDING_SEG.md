@@ -543,7 +543,7 @@ find /home/f50059431/code/footprint/testaoi \
 假设输出是：
 
 ```text
-/home/f50059431/code/footprint/testaoi/runs/segment/yolo26l_seg_512_continue_e75/weights/best.pt
+/home/f50059431/code/footprint/testaoi/runs/segment/data/yolo26_runs/yolo26l_seg_512_continue_e75/weights/best.pt
 ```
 
 就用下面命令生成 LaRSE + YOLO 对比 HTML：
@@ -561,7 +561,7 @@ python -m building_seg.package_larse_finetuned_html \
   --out /home/f50059431/code/footprint/testaoi/data/larse_yolo_compare_report \
   --limit 100 \
   --sort fg_acc_asc \
-  --yolo-model /home/f50059431/code/footprint/testaoi/runs/segment/yolo26l_seg_512_continue_e75/weights/best.pt \
+  --yolo-model /home/f50059431/code/footprint/testaoi/runs/segment/data/yolo26_runs/yolo26l_seg_512_continue_e75/weights/best.pt \
   --yolo-data-yaml /home/f50059431/code/footprint/testaoi/data/yolo26_seg_tiles_512_all/data.yaml \
   --yolo-imgsz 512 \
   --yolo-conf 0.05 \
