@@ -529,6 +529,74 @@ GT 非背景 mask
 错误图
 ```
 
+### 9.4 打包 LaRSE + YOLO 并排对比 HTML
+
+如果想把 fine-tuned LaRSE 的结果和 YOLO26 的结果放在同一个 HTML 里看，先找到这次训练的 YOLO 权重：
+
+```bash
+cd /home/f50059431/code/footprint/testaoi
+
+find /home/f50059431/code/footprint/testaoi \
+  -path '*yolo26l_seg_512_continue_e75*/weights/best.pt'
+```
+
+假设输出是：
+
+```text
+/home/f50059431/code/footprint/testaoi/runs/segment/yolo26l_seg_512_continue_e75/weights/best.pt
+```
+
+就用下面命令生成 LaRSE + YOLO 对比 HTML：
+
+```bash
+cd /home/f50059431/code/footprint/testaoi
+conda activate zx_larse
+
+# 如果 zx_larse 里还没有 ultralytics，先补一次：
+# pip install ultralytics
+
+python -m building_seg.package_larse_finetuned_html \
+  --eval-dir /home/f50059431/code/footprint/testaoi/data/larse_finetuned_eval_val \
+  --dataset /home/f50059431/code/footprint/testaoi/data/building_seg_tiles_512_all \
+  --out /home/f50059431/code/footprint/testaoi/data/larse_yolo_compare_report \
+  --limit 100 \
+  --sort fg_acc_asc \
+  --yolo-model /home/f50059431/code/footprint/testaoi/runs/segment/yolo26l_seg_512_continue_e75/weights/best.pt \
+  --yolo-data-yaml /home/f50059431/code/footprint/testaoi/data/yolo26_seg_tiles_512_all/data.yaml \
+  --yolo-imgsz 512 \
+  --yolo-conf 0.05 \
+  --yolo-device 0 \
+  --make-zip
+```
+
+如果 `find` 找到的 `best.pt` 路径和上面不同，只替换 `--yolo-model` 后面的路径即可。
+
+输出：
+
+```text
+/home/f50059431/code/footprint/testaoi/data/larse_yolo_compare_report/index.html
+/home/f50059431/code/footprint/testaoi/data/larse_yolo_compare_report.zip
+```
+
+HTML 每个样本会展示：
+
+```text
+原图
+LaRSE 预测非背景叠加
+LaRSE 预测非背景 mask
+YOLO 预测 mask
+GT 非背景 mask
+LaRSE 错误图
+```
+
+这里的 YOLO 预测会现场调用 `best.pt` 推理，不依赖之前 runs 目录里保存的可视化图片。`--yolo-data-yaml` 用来把 YOLO 类别顺序对齐到当前 `metadata/dataset.json` 的 Function 类别顺序，所以建议保留。
+
+如果生成 HTML 时显存不够，把 YOLO 推理切到 CPU，或者先减少样本数：
+
+```bash
+--yolo-device cpu --limit 30
+```
+
 错误图颜色含义：
 
 ```text
