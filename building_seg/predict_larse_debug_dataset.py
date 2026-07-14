@@ -151,6 +151,21 @@ def main():
     out_dir = Path(args.out)
     for name in ["pred_masks", "larse_raw_masks", "gt_color", "pred_color", "error", "gt_overlay", "pred_overlay"]:
         (out_dir / name).mkdir(parents=True, exist_ok=True)
+    (out_dir / "eval_config.json").write_text(
+        json.dumps(
+            {
+                "label_space": label_space,
+                "checkpoint": str(args.checkpoint) if args.checkpoint else None,
+                "class_names": class_names,
+                "dataset": str(dataset),
+                "split": args.split,
+                "limit": args.limit,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
 
     sample_ids = load_sample_ids(dataset, args.split)[: args.limit]
     records = []

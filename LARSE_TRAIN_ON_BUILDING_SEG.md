@@ -377,8 +377,57 @@ python -m building_seg.predict_larse_debug_dataset \
 python -m building_seg.analyze_larse_eval \
   --eval-dir /home/f50059431/code/footprint/testaoi/data/larse_finetuned_eval_val \
   --dataset /home/f50059431/code/footprint/testaoi/data/building_seg_tiles_512_all \
+  --label-space target \
   --out-json /home/f50059431/code/footprint/testaoi/data/larse_finetuned_eval_val/diagnosis.json
 ```
+
+新版诊断会额外输出：
+
+```text
+overall_accuracy
+mIoU
+foreground_mIoU
+逐类 IoU / Precision / Recall
+```
+
+如果你的 `larse_finetuned_eval_val` 是旧脚本生成的，也可以直接重新跑上面的 `analyze_larse_eval`，不需要重新推理。
+
+### 9.1 和 fine-tune 前 baseline 对比
+
+如果 fine-tune 前的结果目录是：
+
+```text
+/home/f50059431/code/footprint/testaoi/data/larse_eval_512_all_val_v2
+```
+
+先给 baseline 也重新生成新版诊断：
+
+```bash
+python -m building_seg.analyze_larse_eval \
+  --eval-dir /home/f50059431/code/footprint/testaoi/data/larse_eval_512_all_val_v2 \
+  --dataset /home/f50059431/code/footprint/testaoi/data/building_seg_tiles_512_all \
+  --label-space larse \
+  --out-json /home/f50059431/code/footprint/testaoi/data/larse_eval_512_all_val_v2/diagnosis_v2.json
+```
+
+再对比：
+
+```bash
+python -m building_seg.compare_larse_eval \
+  --before /home/f50059431/code/footprint/testaoi/data/larse_eval_512_all_val_v2/diagnosis_v2.json \
+  --after /home/f50059431/code/footprint/testaoi/data/larse_finetuned_eval_val/diagnosis.json
+```
+
+重点看：
+
+```text
+avg foreground accuracy
+pixel OA
+foreground mIoU
+Residential / Public service / Commercial / Educational 等主要类别 IoU
+```
+
+如果 fine-tune 后 `foreground_mIoU` 和主要类别 IoU 上升，说明训练有效；如果只是 `avg foreground_accuracy` 上升但类别分布塌到 Residential，需要继续看 HTML 判断是否只是过拟合大类。
 
 ## 十、常见报错
 
