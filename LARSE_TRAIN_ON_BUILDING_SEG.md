@@ -550,10 +550,7 @@ find /home/f50059431/code/footprint/testaoi \
 
 ```bash
 cd /home/f50059431/code/footprint/testaoi
-conda activate zx_larse
-
-# 如果 zx_larse 里还没有 ultralytics，先补一次：
-# pip install ultralytics
+source ../venv/bin/activate
 
 python -m building_seg.package_larse_finetuned_html \
   --eval-dir /home/f50059431/code/footprint/testaoi/data/larse_finetuned_eval_val \
