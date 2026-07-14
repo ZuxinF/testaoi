@@ -429,6 +429,151 @@ Residential / Public service / Commercial / Educational 等主要类别 IoU
 
 如果 fine-tune 后 `foreground_mIoU` 和主要类别 IoU 上升，说明训练有效；如果只是 `avg foreground_accuracy` 上升但类别分布塌到 Residential，需要继续看 HTML 判断是否只是过拟合大类。
 
+### 9.2 怎么确认自定义类别是否真的传入 LaRSE
+
+训练脚本会从：
+
+```text
+/home/f50059431/code/footprint/testaoi/data/building_seg_tiles_512_all/metadata/dataset.json
+```
+
+读取 `class_names`，并在运行时替换 `LSegModule.get_labels()`。也就是说，训练时 LaRSE 的文本类别不再是 `buff4k_objectInfo.txt`，而是当前数据自己的 Function 类别。
+
+训练输出目录会保存一份类别文件：
+
+```text
+/home/f50059431/code/footprint/testaoi/data/larse_train_building_seg_512/class_names.json
+```
+
+确认命令：
+
+```bash
+cat /home/f50059431/code/footprint/testaoi/data/larse_train_building_seg_512/class_names.json
+```
+
+也可以和数据集 metadata 对比：
+
+```bash
+python - <<'PY'
+import json
+from pathlib import Path
+
+dataset_classes = json.loads(Path("/home/f50059431/code/footprint/testaoi/data/building_seg_tiles_512_all/metadata/dataset.json").read_text())["class_names"]
+ckpt_classes = json.loads(Path("/home/f50059431/code/footprint/testaoi/data/larse_train_building_seg_512/class_names.json").read_text())
+
+print("dataset classes:")
+for i, name in enumerate(dataset_classes):
+    print(i, name)
+
+print("\ncheckpoint classes:")
+for i, name in enumerate(ckpt_classes):
+    print(i, name)
+
+print("\nmatch:", dataset_classes == ckpt_classes)
+PY
+```
+
+如果输出：
+
+```text
+match: True
+```
+
+说明训练时自定义类别已经正常传入。
+
+注意：fine-tuned checkpoint 的输出已经是当前 Function 类别空间，分析时要显式传：
+
+```bash
+--label-space target
+```
+
+否则旧诊断脚本会把 `larse_raw_masks` 按 BUFF 12 类误解释，出现 `dense residential / resort / hospital` 这类名字。这不代表模型还在用 BUFF 类别，只是诊断方式错了。
+
+### 9.3 打包 fine-tuned LaRSE 非背景可视化 HTML
+
+如果已经有 fine-tuned 验证结果目录：
+
+```text
+/home/f50059431/code/footprint/testaoi/data/larse_finetuned_eval_val
+```
+
+可以把非 background 的结果单独打包成一个可下载 HTML 文件夹：
+
+```bash
+cd /home/f50059431/code/footprint/testaoi
+conda activate zx_larse
+
+python -m building_seg.package_larse_finetuned_html \
+  --eval-dir /home/f50059431/code/footprint/testaoi/data/larse_finetuned_eval_val \
+  --dataset /home/f50059431/code/footprint/testaoi/data/building_seg_tiles_512_all \
+  --out /home/f50059431/code/footprint/testaoi/data/larse_finetuned_non_background_report \
+  --limit 100 \
+  --sort fg_acc_asc \
+  --make-zip
+```
+
+输出：
+
+```text
+/home/f50059431/code/footprint/testaoi/data/larse_finetuned_non_background_report/index.html
+/home/f50059431/code/footprint/testaoi/data/larse_finetuned_non_background_report.zip
+```
+
+HTML 每个样本展示：
+
+```text
+原图
+预测非背景叠加
+预测非背景 mask
+GT 非背景 mask
+错误图
+```
+
+错误图颜色含义：
+
+```text
+绿色：前景类别预测正确
+红色：GT 前景漏检
+紫色：前景位置命中但类别错
+橙色：背景误检为前景
+浅灰：背景
+```
+
+默认 `--sort fg_acc_asc` 会把效果差的样本排在前面，适合先看模型失败在哪里。如果想看效果最好的样本：
+
+```bash
+python -m building_seg.package_larse_finetuned_html \
+  --eval-dir /home/f50059431/code/footprint/testaoi/data/larse_finetuned_eval_val \
+  --dataset /home/f50059431/code/footprint/testaoi/data/building_seg_tiles_512_all \
+  --out /home/f50059431/code/footprint/testaoi/data/larse_finetuned_non_background_best_report \
+  --limit 100 \
+  --sort fg_acc_desc \
+  --make-zip
+```
+
+如果要打包 1000 张：
+
+```bash
+python -m building_seg.package_larse_finetuned_html \
+  --eval-dir /home/f50059431/code/footprint/testaoi/data/larse_finetuned_eval_val_1000 \
+  --dataset /home/f50059431/code/footprint/testaoi/data/building_seg_tiles_512_all \
+  --out /home/f50059431/code/footprint/testaoi/data/larse_finetuned_non_background_report_1000 \
+  --limit 1000 \
+  --sort fg_acc_asc \
+  --make-zip
+```
+
+注意：这个脚本不重新推理，只读取已有的：
+
+```text
+pred_masks/
+metrics.json
+dataset/masks/
+dataset/images/
+```
+
+所以如果要看 1000 张，先用 `predict_larse_debug_dataset --limit 1000` 生成对应 eval 目录。
+
 ## 十、常见报错
 
 ### 10.1 `module 'distutils' has no attribute 'version'`
